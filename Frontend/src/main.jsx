@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   BrowserRouter,
@@ -10,6 +10,9 @@ import {
 } from "react-router-dom";
 import { api } from "./api";
 import "./styles.css";
+import Departments from "./Departments";
+import Users from "./Users";
+import { StaffLogin, StaffWorkspace, TransportPanel } from "./Transport";
 
 const ThemeContext = createContext(null);
 
@@ -52,17 +55,17 @@ function ThemeToggle() {
   );
 }
 
-function Brand() {
+function Brand({ onLogoClick } = {}) {
   return (
     <div className="brand">
-      <span className="brand-icon">C</span>
+      {onLogoClick ? <button type="button" className="brand-icon brand-expand" aria-label="Expand sidebar" title="Expand sidebar" onClick={onLogoClick}>C</button> : <span className="brand-icon">C</span>}
       <span>
         CTMS<small>TRANSPORT MANAGEMENT</small>
       </span>
     </div>
   );
 }
-function AuthLayout({ children, step, login = false }) {
+function AuthLayout({ children, step, login = false, portalLabel = "ADMINISTRATION PORTAL" }) {
   return (
     <main className="auth-shell">
       <aside className="story">
@@ -94,13 +97,13 @@ function AuthLayout({ children, step, login = false }) {
       </aside>
       <section className="auth-main">
         <div className="auth-top">
-          ADMINISTRATION PORTAL
+          {portalLabel}
           <div className="header-actions">
             <span>● Secure access</span>
             <ThemeToggle />
           </div>
         </div>
-        <div className="form-wrap">
+        <div className="form-wrap page-enter">
           <div className="mobile-brand">
             <Brand />
           </div>
@@ -456,6 +459,7 @@ function Login({ setupRequired }) {
           {busy ? "Signing in…" : "Sign in securely"} <span>→</span>
         </button>
       </form>
+      <p className="form-bottom">Employee, approver or Administrative Assistant? <Link to="/login">Staff sign in</Link></p>
       {setupRequired && (
         <p className="form-bottom">
           First time here?{" "}
@@ -495,6 +499,23 @@ function Dashboard() {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
   const [section, setSection] = useState("Dashboard");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const logoutDialog = useRef(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
+  const [departmentRefresh, setDepartmentRefresh] = useState(0);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        document.querySelector(".menu-toggle")?.focus();
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [menuOpen]);
   async function load() {
     setError("");
     try {
@@ -513,11 +534,16 @@ function Dashboard() {
     load();
   }, []);
   async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    setLogoutError("");
     try {
       await api("/super-admin/auth/logout", {});
       navigate("/super-admin/login", { replace: true });
     } catch (err) {
-      setError(err.message);
+      setLogoutError(err.message);
+    } finally {
+      setLoggingOut(false);
     }
   }
   if (!user)
@@ -528,21 +554,74 @@ function Dashboard() {
       </div>
     );
   return (
-    <div className="dashboard">
+    <div className={`dashboard${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+      <dialog
+        ref={logoutDialog}
+        className="logout-dialog"
+        aria-labelledby="logout-title"
+        aria-describedby="logout-description"
+        onCancel={(event) => { if (loggingOut) event.preventDefault(); }}
+        onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }}
+      >
+        <span className="eyebrow accent">YOUR SESSION</span>
+        <h2 id="logout-title">Log out?</h2>
+        <p id="logout-description" className="muted">Are you sure you want to log out? You can sign in again anytime.</p>
+        {logoutError && <div role="alert" className="error">{logoutError}</div>}
+        <div className="logout-actions">
+          <button type="button" className="secondary" autoFocus disabled={loggingOut} onClick={() => logoutDialog.current.close()}>Cancel</button>
+          <button type="button" className="primary" disabled={loggingOut} onClick={logout}>{loggingOut ? "Logging out…" : "Logout"}</button>
+        </div>
+      </dialog>
       <aside className="sidebar">
-        <Brand />
+        <div className="sidebar-heading">
+          <Brand onLogoClick={sidebarCollapsed ? () => setSidebarCollapsed(false) : undefined} />
+          <button
+            type="button"
+            className="sidebar-toggle"
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!sidebarCollapsed}
+            aria-controls="workspace-navigation"
+            onClick={() => setSidebarCollapsed((value) => !value)}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="3" />
+              <path d="M9 4v16" />
+              <path d={sidebarCollapsed ? "m13 9 3 3-3 3" : "m16 9-3 3 3 3"} />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="menu-toggle"
+            aria-label="Navigation menu"
+            aria-expanded={menuOpen}
+            aria-controls="workspace-navigation"
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            <span aria-hidden="true">{menuOpen ? "✕" : "☰"}</span>
+            {menuOpen ? "Close" : "Menu"}
+          </button>
+        </div>
+        <div className={`sidebar-menu${menuOpen ? " is-open" : ""}`} id="workspace-navigation">
         <span className="nav-label">WORKSPACE</span>
-        <nav>
+        <nav aria-label="Workspace">
           {sections.map((item, i) => (
             <button
               key={item}
-              onClick={() => setSection(item)}
+              aria-label={item}
+              title={item}
+              onClick={() => {
+                setSection(item);
+                setSidebarCollapsed(false);
+                setMenuOpen(false);
+              }}
+              aria-current={section === item ? "page" : undefined}
               className={section === item ? "active" : ""}
             >
               <span aria-hidden="true">
                 {["▦", "♙", "▤", "♧", "⇄", "☑", "▣", "▥", "◷", "⚙"][i]}
               </span>
-              {item}
+              <span className="nav-text">{item}</span>
             </button>
           ))}
         </nav>
@@ -552,11 +631,23 @@ function Dashboard() {
             <strong>{user.fullName}</strong>
             <small>Super Administrator</small>
           </div>
-          <button onClick={logout} title="Logout" aria-label="Logout">
+          <button onClick={() => {
+            setLogoutError("");
+            logoutDialog.current.showModal();
+          }} title="Logout" aria-label="Logout">
             ↪
           </button>
         </div>
+        </div>
       </aside>
+      {menuOpen && (
+        <button
+          type="button"
+          className="menu-backdrop"
+          aria-label="Close navigation menu"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
       <main className="dashboard-main">
         <header className="dashboard-top">
           <span>
@@ -567,21 +658,7 @@ function Dashboard() {
             <ThemeToggle />
           </div>
         </header>
-        <div className="dashboard-content">
-          <div className="page-heading">
-            <div>
-              <span className="eyebrow accent">YOUR WORKSPACE AT A GLANCE</span>
-              <h1>{section === "Dashboard" ? "Overview" : section}</h1>
-              <p className="muted">
-                {section === "Dashboard"
-                  ? `Welcome back, ${user.fullName.split(" ")[0]}. Here’s your organization today.`
-                  : "Manage your organization from one secure workspace."}
-              </p>
-            </div>
-            <button className="secondary" onClick={load}>
-              ↻ Refresh
-            </button>
-          </div>
+        <div className="dashboard-content page-enter" key={section}>
           <ErrorBox error={error} />
           {section === "Dashboard" ? (
             <>
@@ -617,8 +694,8 @@ function Dashboard() {
                     directory.
                   </p>
                   <p className="muted">
-                    Department, transport, approval, and booking statistics will
-                    appear when their modules are connected.
+                    Transport, approval, and completed booking totals follow
+                    the staff transport workflow.
                   </p>
                 </div>
               </section>
@@ -633,6 +710,12 @@ function Dashboard() {
                 <span className="badge">✓ Email verified</span>
               </div>
             </>
+          ) : section === "Department Management" ? (
+            <Departments refreshKey={departmentRefresh} onChanged={load} />
+          ) : section === "User Management" ? (
+            <Users refreshKey={departmentRefresh} onChanged={load} />
+          ) : ["Transport Requests", "Approval Management", "Booking Management"].includes(section) ? (
+            <TransportPanel admin section={section} refreshKey={departmentRefresh} onChanged={load} />
           ) : (
             <section className="empty-state">
               <span className="welcome-symbol">◇</span>
@@ -686,6 +769,8 @@ function App() {
     );
   return (
     <Routes>
+      <Route path="/login" element={<StaffLogin Layout={AuthLayout} />} />
+      <Route path="/transport" element={<StaffWorkspace ThemeToggle={ThemeToggle} Brand={Brand} />} />
       <Route
         path="/super-admin/setup"
         element={

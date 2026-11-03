@@ -11,6 +11,9 @@ import {
   SuperAdminSetup,
   SetupState,
   AuditLog,
+  Department,
+  Role,
+  TransportRequest,
   initializeDatabase,
 } from "../src/models.js";
 import { readConfig } from "../src/config.js";
@@ -40,7 +43,8 @@ const mailer = {
 before(
   async () => {
     mongo = await MongoMemoryReplSet.create({
-      replSet: { count: 1, storageEngine: "wiredTiger" },
+      // Small, disposable fixtures do not need MongoDB's default 500 MB reserve.
+      replSet: { count: 1, storageEngine: "wiredTiger", args: ["--setParameter", "indexBuildMinAvailableDiskSpaceMB=50"] },
       binary: { version: "8.0.17" },
     });
     await mongoose.connect(mongo.getUri());
@@ -59,6 +63,9 @@ beforeEach(async () => {
     SuperAdminSetup.deleteMany({}),
     SetupState.deleteMany({}),
     AuditLog.deleteMany({}),
+    Department.deleteMany({}),
+    Role.deleteMany({}),
+    TransportRequest.deleteMany({}),
   ]);
   sent = [];
   failMail = false;
@@ -108,7 +115,7 @@ test("full setup, single-use code, authenticated dashboard, logout, and username
   await agent.get("/api/super-admin/auth/me").expect(200);
   const stats = await agent.get("/api/super-admin/dashboard/stats").expect(200);
   assert.equal(stats.body.totalEmployees, 0);
-  assert.equal(stats.body.totalDepartments, null);
+  assert.equal(stats.body.totalDepartments, 0);
   await agent.post("/api/super-admin/auth/logout").send({}).expect(204);
   await agent.get("/api/super-admin/auth/me").expect(401);
   for (const identifier of [details.username, details.email.toUpperCase()]) {
@@ -139,6 +146,333 @@ test("full setup, single-use code, authenticated dashboard, logout, and username
     1,
   );
 });
+test("department CRUD is protected, validated, unique, persistent, and reflected in dashboard totals", async () => {
+  const base = "/api/super-admin/departments";
+  const missingId = new mongoose.Types.ObjectId().toString();
+  await request(app).get(base).expect(401);
+  await request(app).post(base).send({ name: "Finance" }).expect(401);
+  await request(app).put(`${base}/${missingId}`).send({ name: "Finance" }).expect(401);
+  await request(app).delete(`${base}/${missingId}`).expect(401);
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const created = await request(app).post(base).set("Cookie", cookie)
+    .send({ name: "  Human   Resources  ", description: "People and culture" }).expect(201);
+  const id = created.body.department.id;
+  assert.equal(created.body.department.name, "Human Resources");
+  assert.equal(created.body.department.nameKey, undefined);
+  await request(app).post(base).set("Cookie", cookie).send({ name: "human resources" }).expect(409);
+  for (const body of [{ name: " " }, { name: "x" }, { name: "Finance", description: "x".repeat(501) }, { name: "Finance", role: "ADMIN" }]) {
+    await request(app).post(base).set("Cookie", cookie).send(body).expect(400);
+  }
+  await request(app).post(base).set("Cookie", cookie).send({ name: "Finance" }).expect(201);
+  await request(app).put(`${base}/${id}`).set("Cookie", cookie).send({ name: "FINANCE" }).expect(409);
+  const updated = await request(app).put(`${base}/${id}`).set("Cookie", cookie)
+    .send({ name: "People Operations", description: "Updated description" }).expect(200);
+  assert.equal(updated.body.department.description, "Updated description");
+  assert.equal((await Department.findById(id)).name, "People Operations");
+  const list = await request(app).get(base).set("Cookie", cookie).expect(200);
+  assert.deepEqual(list.body.departments.map((item) => item.name), ["Finance", "People Operations"]);
+  const stats = await request(app).get("/api/super-admin/dashboard/stats").set("Cookie", cookie).expect(200);
+  assert.equal(stats.body.totalDepartments, 2);
+  await request(app).put(`${base}/bad-id`).set("Cookie", cookie).send({ name: "Valid" }).expect(400);
+  await request(app).delete(`${base}/bad-id`).set("Cookie", cookie).expect(400);
+  await request(app).put(`${base}/${missingId}`).set("Cookie", cookie).send({ name: "Valid" }).expect(404);
+  await request(app).delete(`${base}/${missingId}`).set("Cookie", cookie).expect(404);
+  await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(204);
+  await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(404);
+  const after = await request(app).get("/api/super-admin/dashboard/stats").set("Cookie", cookie);
+  assert.equal(after.body.totalDepartments, 1);
+  await request(app).post(base).set("Cookie", cookie).set("Origin", "https://evil.example")
+    .send({ name: "Blocked" }).expect(403);
+});
+
+test("user CRUD validates roles, credentials and department links while protecting the Super Admin", async () => {
+  const base = "/api/super-admin/users";
+  const absent = new mongoose.Types.ObjectId().toString();
+  for (const method of ["get", "post", "put", "delete"]) {
+    await request(app)[method](method === "get" || method === "post" ? base : `${base}/${absent}`).send({}).expect(401);
+  }
+  const verified = await complete();
+  const adminId = verified.body.user.id;
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const first = await Department.create({ name: "Engineering", nameKey: "engineering" });
+  const second = await Department.create({ name: "Finance", nameKey: "finance" });
+  const data = { fullName: "Taylor Silva", username: "taylor.silva", contact: "0771234567", password: "User12", role: "EMPLOYEE", status: "ACTIVE", departmentId: first.id };
+  const created = await request(app).post(base).set("Cookie", cookie).send(data).expect(201);
+  const userId = created.body.user.id;
+  assert.equal(created.body.user.department.name, "Engineering");
+  assert.equal(created.body.user.departmentId, first.id);
+  assert.equal(created.body.user.passwordHash, undefined);
+  assert.equal(created.body.user.isEmailVerified, false);
+  assert.equal(created.body.user.contact, "0771234567");
+  assert.equal(created.body.user.email, undefined);
+  assert.equal(await bcrypt.compare(data.password, (await User.findById(userId).select("+passwordHash")).passwordHash), true);
+  const list = await request(app).get(base).set("Cookie", cookie).expect(200);
+  assert.equal(list.body.users.length, 1);
+  assert.equal(list.body.users[0].passwordHash, undefined);
+  const { password, ...update } = data;
+  for (const change of [{ role: "SUPER_ADMIN" }, { departmentId: absent }, { departmentId: "invalid" }, { isEmailVerified: true }, { contact: "abc1234" }, { contact: "123" }, { contact: "" }, { contact: "1".repeat(16) }, { password: "short" }, { password: "🔒".repeat(20) }, { status: "UNKNOWN" }]) {
+    await request(app).post(base).set("Cookie", cookie).send({ ...data, ...change }).expect(400);
+  }
+  await request(app).post(base).set("Cookie", cookie).send({ ...data, username: "unique.user", departmentId: null }).expect(201);
+  await request(app).post(base).set("Cookie", cookie).send({ ...data, contact: "0777654321" }).expect(409);
+  await request(app).put(`${base}/${adminId}`).set("Cookie", cookie).send(update).expect(404);
+  await request(app).delete(`${base}/${adminId}`).set("Cookie", cookie).expect(404);
+  await request(app).put(`${base}/${userId}`).set("Cookie", cookie).send({ ...update, role: "SUPER_ADMIN" }).expect(400);
+  await request(app).delete(`/api/super-admin/departments/${first.id}`).set("Cookie", cookie).expect(409);
+  assert.ok(await Department.findById(first.id));
+  const edited = await request(app).put(`${base}/${userId}`).set("Cookie", cookie)
+    .send({ ...update, fullName: "Taylor Perera", contact: "0779998888", departmentId: second.id, role: "MANAGER", status: "INACTIVE" }).expect(200);
+  assert.equal(edited.body.user.department.name, "Finance");
+  assert.equal(edited.body.user.isActive, false);
+  assert.equal(edited.body.user.contact, "0779998888");
+  assert.equal(await bcrypt.compare(password, (await User.findById(userId).select("+passwordHash")).passwordHash), true);
+  await request(app).delete(`/api/super-admin/departments/${first.id}`).set("Cookie", cookie).expect(204);
+  const replacement = "New123";
+  await request(app).put(`${base}/${userId}`).set("Cookie", cookie).send({ ...update, departmentId: null, password: replacement }).expect(200);
+  assert.equal(await bcrypt.compare(replacement, (await User.findById(userId).select("+passwordHash")).passwordHash), true);
+  assert.equal((await User.findById(userId)).department, null);
+  await request(app).delete(`/api/super-admin/departments/${second.id}`).set("Cookie", cookie).expect(204);
+  await request(app).put(`${base}/${absent}`).set("Cookie", cookie).send({ ...update, departmentId: null }).expect(404);
+  await request(app).delete(`${base}/invalid`).set("Cookie", cookie).expect(400);
+  await request(app).post(base).set("Cookie", cookie).set("Origin", "https://evil.example").send(data).expect(403);
+  const token = jwt.sign({ role: "EMPLOYEE" }, config.JWT_SECRET, { subject: userId, issuer: "ctms", audience: "ctms-super-admin" });
+  await request(app).get(base).set("Cookie", `ctms_session=${token}`).expect(401);
+  await request(app).delete(`${base}/${userId}`).set("Cookie", cookie).expect(204);
+  await request(app).delete(`${base}/${userId}`).set("Cookie", cookie).expect(404);
+  assert.equal(await User.countDocuments({ role: "SUPER_ADMIN" }), 1);
+});
+
+test("legacy email index migration allows multiple users without emails and retains email uniqueness", async () => {
+  await User.collection.createIndex({ email: 1 }, { name: "email_1", unique: true });
+  await initializeDatabase();
+  const indexes = await User.collection.indexes();
+  assert.ok(indexes.some((index) => index.name === "user_email_unique" && index.unique));
+  assert.equal(indexes.some((index) => index.name === "email_1"), false);
+  const fields = { fullName: "Contact User", passwordHash: "test-hash", role: "EMPLOYEE", contact: "0771234567" };
+  await User.create({ ...fields, username: "contact.one" });
+  await User.create({ ...fields, username: "contact.two" });
+  await User.create({ ...fields, username: "contact.three", email: "unique@example.com" });
+  await assert.rejects(User.create({ ...fields, username: "contact.four", email: "unique@example.com" }), (error) => error.code === 11000);
+});
+
+test("department assignment and deletion cannot leave a dangling user reference", async () => {
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const department = await Department.create({ name: "Concurrent", nameKey: "concurrent" });
+  const data = { fullName: "Race Test", username: "race.test", contact: "+94 77 222 3333", password: "RacePassword!123", role: "EMPLOYEE", status: "ACTIVE", departmentId: department.id };
+  const [assigned, removed] = await Promise.all([
+    request(app).post("/api/super-admin/users").set("Cookie", cookie).send(data),
+    request(app).delete(`/api/super-admin/departments/${department.id}`).set("Cookie", cookie),
+  ]);
+  assert.ok([201, 400].includes(assigned.status), JSON.stringify(assigned.body));
+  assert.ok([204, 409].includes(removed.status), JSON.stringify(removed.body));
+  if (await User.exists({ department: department._id })) assert.ok(await Department.exists({ _id: department._id }));
+});
+
+test("custom roles are unique, protected, persistent and assignable without Super Admin privileges", async () => {
+  const base = "/api/super-admin/roles";
+  await request(app).get(base).expect(401);
+  await request(app).post(base).send({ name: "Coordinator" }).expect(401);
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const defaults = await request(app).get(base).set("Cookie", cookie).expect(200);
+  assert.deepEqual(defaults.body.roles.map((role) => role.value), ["ADMIN", "EMPLOYEE", "MANAGER", "OPERATOR"]);
+  for (const name of ["Admin", "employee", "MANAGER", "operator", "Super Admin", "super_admin", "Super Administrator"]) {
+    await request(app).post(base).set("Cookie", cookie).send({ name }).expect(409);
+  }
+  for (const data of [{ name: " " }, { name: "x" }, { name: "Valid", permissions: ["SUPER_ADMIN"] }, { name: "Valid", description: "x".repeat(501) }]) {
+    await request(app).post(base).set("Cookie", cookie).send(data).expect(400);
+  }
+  const created = await request(app).post(base).set("Cookie", cookie)
+    .send({ name: " Transport   Coordinator ", description: "Coordinates transport" }).expect(201);
+  assert.equal(created.body.role.name, "Transport Coordinator");
+  assert.equal(created.body.role.builtIn, false);
+  const role = created.body.role.value;
+  await request(app).post(base).set("Cookie", cookie).send({ name: "transport coordinator" }).expect(409);
+  const list = await request(app).get(base).set("Cookie", cookie).expect(200);
+  assert.equal(list.body.roles.length, 5);
+  const userData = { fullName: "Sam Silva", username: "sam.silva", contact: "011 234 5678", password: "RolePassword!123", role, status: "ACTIVE", departmentId: null };
+  const person = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send(userData).expect(201);
+  assert.equal(person.body.user.role, role);
+  const { password, ...update } = userData;
+  await request(app).put(`/api/super-admin/users/${person.body.user.id}`).set("Cookie", cookie).send({ ...update, role: "EMPLOYEE" }).expect(200);
+  await request(app).put(`/api/super-admin/users/${person.body.user.id}`).set("Cookie", cookie).send(update).expect(200);
+  assert.equal((await User.findById(person.body.user.id)).role, role);
+  const unknown = `CUSTOM_${new mongoose.Types.ObjectId()}`;
+  await request(app).post("/api/super-admin/users").set("Cookie", cookie).send({ ...userData, role: unknown }).expect(400);
+  const token = jwt.sign({ role }, config.JWT_SECRET, { subject: person.body.user.id, issuer: "ctms", audience: "ctms-super-admin" });
+  await request(app).get(base).set("Cookie", `ctms_session=${token}`).expect(401);
+  await request(app).post("/api/super-admin/auth/login").send({ identifier: userData.username, password }).expect(401);
+  await request(app).post(base).set("Cookie", cookie).set("Origin", "https://evil.example").send({ name: "Blocked" }).expect(403);
+});
+
+test("SOP workflow collects request details without transport profiles and enforces self-service, Annexure B/C, approval deadlines, booking ownership and completion", async () => {
+  const verified = await complete();
+  const adminCookie = verified.headers["set-cookie"][0].split(";")[0];
+  const department = await Department.create({ name: "Production", nameKey: "production" });
+  const password = "Staff123";
+  const passwordHash = await bcrypt.hash(password, 12);
+  async function employee(username, designation, role = "EMPLOYEE", locationType = "FACTORY") {
+    return User.create({ fullName: username, username, passwordHash, contact: "0771234567", role });
+  }
+  const requester = await employee("requester", "Production Executive");
+  const outsider = await employee("outsider", "HR Executive");
+  const approver = await employee("approver", "Sales Manager", "MANAGER");
+  const otherApprover = await employee("other.approver", "Finance Manager", "MANAGER");
+  const assistant = await employee("assistant", "Administrative Assistant", "OPERATOR");
+  const showroom = await employee("showroom", "Production Executive", "EMPLOYEE", "SHOWROOM");
+  async function loginStaff(user) {
+    const agent = request.agent(app);
+    await agent.post("/api/transport/auth/login").send({ username: user.username, password }).expect(200);
+    return agent;
+  }
+  const owner = await loginStaff(requester), reviewer = await loginStaff(approver), booking = await loginStaff(assistant);
+  const other = await loginStaff(outsider), wrongReviewer = await loginStaff(otherApprover), store = await loginStaff(showroom);
+  const base = "/api/transport/requests";
+  const pickupAt = new Date(Date.now() + 2 * 3600000).toISOString();
+  const body = { requesterDesignation: "Production Executive", requesterContact: "0771234567", departmentId: department.id, workLocation: "Factory 1", approverDesignation: "Sales Manager", passengerCount: 1, service: "RIDE", approverId: approver.id, pickupAt, pickup: "Factory 1", destination: "Head Office", vehicle: "THREE_WHEELER", purpose: "Official sample review", justification: "Required quality review", passengers: [{ name: requester.fullName, designation: "Production Executive" }], officialOnly: true, requestShared: true };
+  await request(app).get(base).expect(401);
+  await owner.get("/api/super-admin/users").expect(401);
+  await owner.post(base).send(body).expect(400);
+  await owner.post("/api/transport/acknowledge").send({ acknowledged: true }).expect(200);
+  await store.post(base).send(body).expect(400);
+  await owner.post(base).send({ ...body, requesterId: outsider.id }).expect(400);
+  await owner.post(base).send({ ...body, officialOnly: false }).expect(400);
+  await owner.post(base).send({ ...body, pickupAt: new Date(Date.now() + 20 * 60000).toISOString() }).expect(400);
+  await owner.post(base).send({ ...body, vehicle: "CAR" }).expect(400);
+  await owner.post(base).send({ ...body, passengers: [] }).expect(400);
+  await owner.post(base).send({ ...body, passengerCount: 2 }).expect(400);
+  await owner.post(base).send({ ...body, requesterDesignation: "" }).expect(400);
+  await owner.post(base).send({ ...body, requesterContact: "invalid" }).expect(400);
+  await owner.post(base).send({ ...body, departmentId: "000000000000000000000000" }).expect(400);
+  await owner.post(base).send({ ...body, approverId: outsider.id, approverDesignation: "Sales Manager" }).expect(400);
+  const submitted = await owner.post(base).send(body).expect(201);
+  const record = submitted.body.request;
+  assert.equal(record.requesterDetails.contact, body.requesterContact);
+  assert.equal(record.requesterDetails.designation, body.requesterDesignation);
+  assert.equal(record.requesterDetails.workLocation, "Factory 1");
+  assert.equal(record.passengerCount, 1);
+  assert.equal(record.requesterDetails.department, "Production");
+  assert.equal((await other.get(base)).body.requests.length, 0);
+  assert.equal((await wrongReviewer.get(base)).body.requests.length, 0);
+  await other.get(`${base}/${record.id}/message`).expect(404);
+  await wrongReviewer.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(404);
+  await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 0, externalActionConfirmed: true, bookingReference: "TOO-EARLY" }).expect(403);
+  await reviewer.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: 0 }).expect(400);
+  await TransportRequest.updateOne({ _id: record.id }, { pickupAt: new Date(Date.now() + 10 * 60000) });
+  await reviewer.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(400);
+  await TransportRequest.updateOne({ _id: record.id }, { pickupAt: new Date(pickupAt) });
+  const approved = await reviewer.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(200);
+  assert.equal(approved.body.request.status, "APPROVED");
+  await owner.put(`${base}/${record.id}`).send({ ...body, version: 0 }).expect(409);
+  await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 1, bookingReference: "REF1" }).expect(400);
+  const booked = await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 1, bookingReference: "REF1", externalActionConfirmed: true }).expect(200);
+  assert.equal(booked.body.request.status, "BOOKED");
+  await owner.post(`${base}/${record.id}/action`).send({ action: "COMPLETE", version: 2 }).expect(400);
+  await owner.post(`${base}/${record.id}/action`).send({ action: "COMPLETE", version: 2, routeVerified: true, completionMessageChecked: true }).expect(200);
+  assert.match((await owner.get(`${base}/${record.id}/message`)).body.text, /Approved by: approver/);
+  const stats = await request(app).get("/api/super-admin/dashboard/stats").set("Cookie", adminCookie).expect(200);
+  assert.equal(stats.body.totalTransportRequests, 1); assert.equal(stats.body.completedBookings, 1);
+  assert.equal((await request(app).get("/api/super-admin/transport/requests").set("Cookie", adminCookie)).body.requests.length, 1);
+  await request(app).post(`/api/super-admin/transport/requests/${record.id}/action`).set("Cookie", adminCookie)
+    .send({ action: "COMPLETE", version: 3, routeVerified: true, completionMessageChecked: true }).expect(403);
+  const group = [...body.passengers, { name: "Person Two", designation: "Executive" }, { name: "Person Three", designation: "Executive" }];
+  await owner.post(base).send({ ...body, vehicle: "CAR", passengers: group }).expect(400);
+  await owner.post(base).send({ ...body, vehicle: "CAR", passengers: group, passengerCount: 3, groupCarEligible: true }).expect(201);
+  const flash = { ...body, service: "FLASH", passengers: [], passengerCount: 0, deliveryRoute: "CUSTOMER_DELIVERY", receiverName: "Receiver", receiverContact: "0771234567", itemDetails: "Fabric samples" };
+  await owner.post(base).send(flash).expect(400);
+  await owner.post(base).send({ ...flash, vehicle: "MOTORBIKE", receiverContact: "bad" }).expect(400);
+  await owner.post(base).send({ ...flash, vehicle: "MOTORBIKE" }).expect(201);
+  await User.updateOne({ _id: requester._id }, { isActive: false });
+  await owner.get(base).expect(401);
+});
+
+test("Super Admin sidebar grants persist, control staff actions, and revoke access in an existing session", async () => {
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const base = "/api/super-admin/users";
+  const team = await Department.create({ name: "Transport", nameKey: "transport" });
+  const account = (username, sidebarAccess) => ({ fullName: username, username, contact: "0771234567", password: "Staff123", role: "EMPLOYEE", status: "ACTIVE", departmentId: null, sidebarAccess });
+  const ownerData = account("access.owner", ["DASHBOARD", "REQUESTS", "REPORTS"]);
+  const reviewerData = account("access.approver", ["DASHBOARD"]);
+  const bookerData = account("access.booker", ["DASHBOARD"]);
+  const create = async (data) => (await request(app).post(base).set("Cookie", cookie).send(data).expect(201)).body.user;
+  const ownerUser = await create(ownerData), reviewerUser = await create(reviewerData), bookerUser = await create(bookerData);
+  assert.deepEqual(ownerUser.sidebarAccess, ownerData.sidebarAccess);
+  for (const sidebarAccess of [["SUPER_ADMIN"], ["REQUESTS", "REQUESTS"], "REQUESTS", null]) {
+    await request(app).post(base).set("Cookie", cookie).send({ ...ownerData, username: "invalid.access", sidebarAccess }).expect(400);
+  }
+  const grant = async (user, data, sidebarAccess) => {
+    const result = await request(app).put(`${base}/${user.id}`).set("Cookie", cookie).send({ ...data, sidebarAccess }).expect(200);
+    assert.deepEqual(result.body.user.sidebarAccess, sidebarAccess);
+  };
+  async function login(user) { const client = request.agent(app); await client.post("/api/transport/auth/login").send({ username: user.username, password: "Staff123" }).expect(200); return client; }
+  const owner = await login(ownerUser), reviewer = await login(reviewerUser), booker = await login(bookerUser);
+  await owner.post("/api/transport/acknowledge").send({ acknowledged: true }).expect(200);
+  await owner.put(`${base}/${ownerUser.id}`).send({ ...ownerData, sidebarAccess: ["BOOKINGS"] }).expect(401);
+  const body = { requesterDesignation: "Executive", requesterContact: "0771234567", departmentId: team.id, workLocation: "Office", approverDesignation: "Team Lead", passengerCount: 1, service: "RIDE", approverId: reviewerUser.id, pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Official review", justification: "Production review", passengers: [{ name: ownerUser.fullName, designation: "Executive" }], officialOnly: true, requestShared: true };
+  await owner.post("/api/transport/requests").send(body).expect(400);
+  await grant(reviewerUser, reviewerData, ["DASHBOARD", "APPROVALS"]);
+  assert.equal((await reviewer.get("/api/transport/me")).body.user.permissions.approve, true);
+  const approvers = (await owner.get("/api/transport/approvers").expect(200)).body.approvers;
+  assert.ok(approvers.some((person) => person.id === reviewerUser.id));
+  const record = (await owner.post("/api/transport/requests").send(body).expect(201)).body.request;
+  const action = `/api/transport/requests/${record.id}/action`;
+  await grant(reviewerUser, reviewerData, ["DASHBOARD"]);
+  await reviewer.post(action).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(403);
+  await grant(reviewerUser, reviewerData, ["APPROVALS"]);
+  await reviewer.post(action).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(200);
+  await booker.post(action).send({ action: "BOOK", version: 1, externalActionConfirmed: true, bookingReference: "ACCESS-001" }).expect(404);
+  await grant(bookerUser, bookerData, ["BOOKINGS"]);
+  await booker.post(action).send({ action: "BOOK", version: 1, externalActionConfirmed: true, bookingReference: "ACCESS-001" }).expect(200);
+  await grant(bookerUser, bookerData, []);
+  await booker.get("/api/transport/requests").expect(403);
+  await grant(ownerUser, ownerData, ["REPORTS", "HISTORY"]);
+  await owner.get("/api/transport/requests").expect(200);
+  await owner.post("/api/transport/requests").send(body).expect(403);
+  await owner.post(action).send({ action: "CANCEL", version: 2, note: "Cancel" }).expect(403);
+  const profile = (await owner.get("/api/transport/me").expect(200)).body.user;
+  assert.deepEqual(profile.sidebarAccess, ["REPORTS", "HISTORY"]);
+  assert.equal(profile.permissions.request, false);
+});
+
+test("SOP changes, returns and cancellations require responsible staff and reject stale versions", async () => {
+  const department = await Department.create({ name: "Accounts", nameKey: "accounts" });
+  const passwordHash = await bcrypt.hash("Staff123", 12);
+  const common = { passwordHash, contact: "0771234567", department: department._id, locationType: "HEAD_OFFICE", workLocation: "Head Office", sopAcknowledgedAt: new Date() };
+  const ownerUser = await User.create({ ...common, fullName: "Owner", username: "owner", role: "EMPLOYEE", designation: "Accounts Executive" });
+  const approver = await User.create({ ...common, fullName: "Approver", username: "approver", role: "MANAGER", designation: "Finance Manager" });
+  const operator = await User.create({ ...common, fullName: "Assistant", username: "assistant", role: "OPERATOR", designation: "Administrative Assistant" });
+  async function agent(user) { const agent = request.agent(app); await agent.post("/api/transport/auth/login").send({ username: user.username, password: "Staff123" }).expect(200); return agent; }
+  const owner = await agent(ownerUser), reviewer = await agent(approver), assistant = await agent(operator);
+  const base = "/api/transport/requests";
+  const body = { requesterDesignation: "Accounts Executive", requesterContact: "0771234567", departmentId: department.id, workLocation: "Head Office", approverDesignation: "Finance Manager", passengerCount: 1, service: "RIDE", approverId: approver.id, pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Accounts review", justification: "Official review", passengers: [{ name: "Owner", designation: "Accounts Executive" }], officialOnly: true, requestShared: true };
+  let record = (await owner.post(base).send(body).expect(201)).body.request;
+  async function act(agent, action, extra = {}) { const result = await agent.post(`${base}/${record.id}/action`).send({ action, version: record.version, ...extra }).expect(200); record = result.body.request; }
+  await act(reviewer, "RETURN", { note: "Clarify purpose" });
+  await owner.put(`${base}/${record.id}`).send({ ...body, version: 0 }).expect(409);
+  record = (await owner.put(`${base}/${record.id}`).send({ ...body, version: record.version }).expect(200)).body.request;
+  await act(reviewer, "APPROVE", { approvalShared: true });
+  await act(assistant, "BOOK", { bookingReference: "REF2", externalActionConfirmed: true });
+  await act(owner, "REPORT_ISSUE", { note: "Driver delayed; notify assistant" });
+  await act(owner, "REQUEST_CHANGE", { note: "Destination needs changing" });
+  await assistant.post(`${base}/${record.id}/action`).send({ action: "CONFIRM_CHANGE", version: record.version, note: "Resolved" }).expect(403);
+  await act(assistant, "CONFIRM_CHANGE", { externalActionConfirmed: true, note: "Old PickMe booking cancelled; resubmit" });
+  record = (await owner.put(`${base}/${record.id}`).send({ ...body, version: record.version }).expect(200)).body.request;
+  assert.equal(record.approvalSharedAt, null);
+  await act(reviewer, "APPROVE", { approvalShared: true });
+  await act(assistant, "BOOK", { bookingReference: "REF3", externalActionConfirmed: true });
+  await act(owner, "CANCEL", { note: "Meeting cancelled" });
+  assert.equal(record.status, "CANCELLATION_REQUESTED");
+  await owner.post(`${base}/${record.id}/action`).send({ action: "CONFIRM_CANCEL", version: record.version, externalActionConfirmed: true, note: "Cancel" }).expect(403);
+  await act(assistant, "CONFIRM_CANCEL", { externalActionConfirmed: true, note: "Cancelled in PickMe" });
+  assert.equal(record.status, "CANCELLED");
+  assert.ok(record.history.some((item) => item.action === "REPORT_ISSUE"));
+  await owner.post("/api/transport/auth/logout").send({}).expect(204);
+  await owner.get(base).expect(401);
+});
+
 test("all setup endpoints remain closed even after the Super Admin is deleted", async () => {
   await complete();
   await User.deleteMany({});
