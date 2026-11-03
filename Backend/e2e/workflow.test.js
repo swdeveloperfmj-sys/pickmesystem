@@ -19,7 +19,7 @@ test(
     const { createServer } = await import(
       pathToFileURL(frontendRequire.resolve("vite")).href
     );
-    let mongo, backend, vite, browser;
+    let mongo, backend, vite, browser, page;
     let sentOtp;
     try {
       mongo = await MongoMemoryReplSet.create({
@@ -60,9 +60,10 @@ test(
       await vite.listen();
       config.APP_ORIGIN = `http://127.0.0.1:${vite.httpServer.address().port}`;
       browser = await chromium.launch({ headless: true });
-      const page = await browser.newPage({
+      page = await browser.newPage({
         viewport: { width: 1440, height: 1000 },
       });
+      page.setDefaultTimeout(15000);
       const pageErrors = [];
       page.on("pageerror", (error) => pageErrors.push(error.message));
       await page.goto(config.APP_ORIGIN);
@@ -242,6 +243,62 @@ test(
       await page.getByRole("switch", { name: "Dark mode" }).click();
       await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
       await page.screenshot({ path: `${artifactDir}/departments-dark-mobile.png`, fullPage: true });
+      await page.getByLabel("Department name", { exact: true }).fill("Finance");
+      await page.getByRole("button", { name: "Create department", exact: true }).click();
+      await page.getByText("Department created.", { exact: true }).waitFor();
+      await selectSection("User Management");
+      await page.getByRole("button", { name: "Roles", exact: true }).click();
+      await page.getByLabel("Role name", { exact: true }).fill("Transport Coordinator");
+      await page.getByLabel("Role description (optional)", { exact: true }).fill("Coordinates company transport");
+      await page.getByRole("button", { name: "Create role", exact: true }).click();
+      await page.getByText("Role created. You can now assign it from the Users section.", { exact: true }).waitFor();
+      await checkResponsiveLayout();
+      await page.screenshot({ path: `${artifactDir}/roles-dark-desktop.png`, fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({ path: `${artifactDir}/roles-dark-mobile.png`, fullPage: true });
+      await page.getByRole("button", { name: "Users", exact: true }).click();
+      await page.getByLabel("Full name", { exact: true }).fill("Jamie Silva");
+      await page.getByLabel("Username", { exact: true }).fill("jamie.silva");
+      await page.getByLabel("Email address", { exact: true }).fill("jamie@example.com");
+      await page.getByLabel("Password", { exact: true }).fill("UserPassword!123");
+      await page.getByLabel("Role", { exact: true }).selectOption({ label: "Transport Coordinator" });
+      await page.getByLabel("Department", { exact: true }).selectOption({ label: "People Operations" });
+      await page.getByRole("button", { name: "Create user", exact: true }).click();
+      await page.getByText("User created.", { exact: true }).waitFor();
+      await page.reload();
+      await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+      assert.equal(await page.locator(".metric").filter({ hasText: "Total Employees" }).locator("strong").innerText(), "0");
+      await selectSection("User Management");
+      const person = page.getByRole("article", { name: "Jamie Silva", exact: true });
+      await person.getByText(/Transport Coordinator/).waitFor();
+      await person.getByText(/People Operations/).waitFor();
+      await person.getByRole("button", { name: "Edit", exact: true }).click();
+      await page.getByLabel("Role", { exact: true }).selectOption("MANAGER");
+      await page.getByLabel("Status", { exact: true }).selectOption("INACTIVE");
+      await page.getByLabel("Department", { exact: true }).selectOption({ label: "Finance" });
+      await page.getByRole("button", { name: "Save changes", exact: true }).click();
+      await page.getByText("User updated.", { exact: true }).waitFor();
+      await person.getByText("Manager · Inactive · Finance", { exact: true }).waitFor();
+      await checkResponsiveLayout();
+      await page.screenshot({ path: `${artifactDir}/users-dark-desktop.png`, fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({ path: `${artifactDir}/users-dark-mobile.png`, fullPage: true });
+      await selectSection("Department Management");
+      const finance = page.getByRole("article", { name: "Finance", exact: true });
+      await finance.getByRole("button", { name: "Delete", exact: true }).click();
+      await finance.getByRole("button", { name: "Confirm delete" }).click();
+      await page.getByRole("alert").filter({ hasText: "This department has assigned users" }).waitFor();
+      await finance.getByRole("button", { name: "Keep department" }).click();
+      await selectSection("User Management");
+      await person.getByRole("button", { name: "Delete", exact: true }).click();
+      await person.getByRole("button", { name: "Keep user" }).click();
+      await person.getByRole("button", { name: "Delete", exact: true }).click();
+      await person.getByRole("button", { name: "Confirm delete" }).click();
+      await page.getByText("User deleted.", { exact: true }).waitFor();
+      await selectSection("Department Management");
+      await finance.getByRole("button", { name: "Delete", exact: true }).click();
+      await finance.getByRole("button", { name: "Confirm delete" }).click();
+      await page.getByText("Department deleted.", { exact: true }).waitFor();
       const updatedDepartment = page.getByRole("article", { name: "People Operations", exact: true });
       await updatedDepartment.getByRole("button", { name: "Delete", exact: true }).click();
       await updatedDepartment.getByRole("button", { name: "Keep department" }).click();
@@ -275,6 +332,12 @@ test(
       await page.goto(`${config.APP_ORIGIN}/super-admin/dashboard`);
       await page.waitForURL("**/super-admin/login");
       assert.deepEqual(pageErrors, []);
+    } catch (error) {
+      if (page && !page.isClosed()) {
+        await page.screenshot({ path: fileURLToPath(new URL("../artifacts/workflow-failure.png", import.meta.url)), fullPage: true }).catch(() => {});
+        console.error("Browser workflow failed:", error.message);
+      }
+      throw error;
     } finally {
       await browser?.close();
       await vite?.close();

@@ -12,7 +12,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { z } from "zod";
-import { User, SuperAdminSetup, SetupState, AuditLog, Department } from "./models.js";
+import { User, SuperAdminSetup, SetupState, AuditLog, Department, Role } from "./models.js";
 import { isAllowedOrigin } from "./origin.js";
 
 const registration = z
@@ -67,6 +67,28 @@ const departmentInput = z.object({
   description: z.string().trim().max(500).default(""),
 }).strict();
 const departmentId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid department ID");
+const managedUserInput = z.object({
+  fullName: registration.shape.fullName,
+  username: registration.shape.username,
+  email: registration.shape.email,
+  role: z.string().regex(/^(ADMIN|EMPLOYEE|MANAGER|OPERATOR|CUSTOM_[a-f\d]{24})$/, "Select a valid role"),
+  status: z.enum(["ACTIVE", "INACTIVE"]),
+  departmentId: departmentId.nullable(),
+}).strict();
+const createUserInput = managedUserInput.extend({ password: registration.shape.password });
+const updateUserInput = managedUserInput.extend({ password: registration.shape.password.optional() });
+const builtinRoles = [
+  { value: "ADMIN", name: "Admin", description: "Administrator account" },
+  { value: "EMPLOYEE", name: "Employee", description: "Employee account" },
+  { value: "MANAGER", name: "Manager", description: "Manager account" },
+  { value: "OPERATOR", name: "Operator", description: "Operator account" },
+].map((role) => ({ ...role, builtIn: true }));
+const publicRole = (role) => ({ value: `CUSTOM_${role.id}`, name: role.name, description: role.description, builtIn: false });
+const managedUser = (user) => ({
+  ...publicUser(user),
+  departmentId: user.department?._id?.toString() || null,
+  department: user.department ? { id: user.department.id, name: user.department.name } : null,
+});
 const publicDepartment = (department) => ({
   id: department.id,
   name: department.name,
@@ -410,6 +432,73 @@ export function createApp({ config, mailer, limits = true }) {
     res.json({ user: publicUser(user) });
   });
   app.use("/api/super-admin", requireSuperAdmin);
+  app.get("/api/super-admin/roles", async (_req, res) => {
+    const roles = await Role.find().sort({ nameKey: 1 });
+    res.json({ roles: [...builtinRoles, ...roles.map(publicRole)] });
+  });
+  app.post("/api/super-admin/roles", async (req, res) => {
+    const data = departmentInput.parse(req.body);
+    const nameKey = data.name.toLowerCase();
+    const reserved = ["admin", "employee", "manager", "operator", "superadmin", "superadministrator"];
+    if (reserved.includes(nameKey.replace(/[\s_-]+/g, ""))) {
+      throw new ApiError(409, "This role name is reserved for a built-in role.");
+    }
+    try {
+      const role = await Role.create({ ...data, nameKey });
+      res.status(201).json({ role: publicRole(role) });
+    } catch (error) {
+      if (error.code === 11000) throw new ApiError(409, "A role with this name already exists.");
+      throw error;
+    }
+  });
+  app.get("/api/super-admin/users", async (_req, res) => {
+    const users = await User.find({ role: { $ne: "SUPER_ADMIN" } })
+      .populate("department", "name").sort({ fullName: 1, _id: 1 });
+    res.json({ users: users.map(managedUser) });
+  });
+  async function saveUser(req, res, update) {
+    const id = update ? departmentId.parse(req.params.id) : undefined;
+    const data = (update ? updateUserInput : createUserInput).parse(req.body);
+    const { password, departmentId: assignedId, ...fields } = data;
+    const passwordHash = password ? await bcrypt.hash(password, 12) : undefined;
+    let saved;
+    try {
+      await mongoose.connection.transaction(async (session) => {
+        if (fields.role.startsWith("CUSTOM_") &&
+          !(await Role.exists({ _id: fields.role.slice(7) }).session(session))) {
+          throw new ApiError(400, "Selected role no longer exists. Refresh the role list.");
+        }
+        // Lock the department document so assignment cannot race its deletion.
+        if (assignedId) {
+          const department = await Department.findByIdAndUpdate(assignedId,
+            { $inc: { assignmentVersion: 1 } }, { session });
+          if (!department) throw new ApiError(400, "Selected department no longer exists. Refresh the department list.");
+        }
+        const values = { ...fields, department: assignedId, isActive: fields.status === "ACTIVE" };
+        if (passwordHash) values.passwordHash = passwordHash;
+        if (update) {
+          saved = await User.findOneAndUpdate({ _id: id, role: { $ne: "SUPER_ADMIN" } },
+            { $set: values }, { session, returnDocument: "after", runValidators: true });
+          if (!saved) throw new ApiError(404, "User not found or protected Super Administrator account.");
+        } else {
+          [saved] = await User.create([values], { session });
+        }
+      });
+    } catch (error) {
+      if (error.code === 11000) throw new ApiError(409, "Username or email is already in use.");
+      throw error;
+    }
+    await saved.populate("department", "name");
+    res.status(update ? 200 : 201).json({ user: managedUser(saved) });
+  }
+  app.post("/api/super-admin/users", (req, res) => saveUser(req, res, false));
+  app.put("/api/super-admin/users/:id", (req, res) => saveUser(req, res, true));
+  app.delete("/api/super-admin/users/:id", async (req, res) => {
+    const id = departmentId.parse(req.params.id);
+    const user = await User.findOneAndDelete({ _id: id, role: { $ne: "SUPER_ADMIN" } });
+    if (!user) throw new ApiError(404, "User not found or protected Super Administrator account.");
+    res.sendStatus(204);
+  });
   app.get("/api/super-admin/departments", async (_req, res) => {
     const departments = await Department.find().sort({ nameKey: 1 });
     res.json({ departments: departments.map(publicDepartment) });
@@ -434,8 +523,13 @@ export function createApp({ config, mailer, limits = true }) {
   app.put("/api/super-admin/departments/:id", (req, res) => saveDepartment(req, res, true));
   app.delete("/api/super-admin/departments/:id", async (req, res) => {
     const id = departmentId.parse(req.params.id);
-    const department = await Department.findByIdAndDelete(id);
-    if (!department) throw new ApiError(404, "Department not found.");
+    await mongoose.connection.transaction(async (session) => {
+      const department = await Department.findByIdAndDelete(id, { session });
+      if (!department) throw new ApiError(404, "Department not found.");
+      if (await User.exists({ department: id }).session(session)) {
+        throw new ApiError(409, "This department has assigned users. Reassign or remove their department before deleting it.");
+      }
+    });
     res.sendStatus(204);
   });
   app.get("/api/super-admin/auth/me", (req, res) =>

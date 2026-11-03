@@ -4,7 +4,7 @@ Super Administrator setup, email verification, authentication, and administratio
 
 ## Workspace scope
 
-The supplied `Backend` and `Frontend` directories were empty. This implementation creates the requested foundation; there was no existing employee request, manager approval, operator booking, registration, or Google Maps code to integrate or regression-test. The dashboard counts employees and managers from the real User collection. Other statistics are `null` and displayed as “Not connected yet” until their models exist. Sidebar destinations currently display explicit module empty states; they do not implement management CRUD.
+The supplied `Backend` and `Frontend` directories were empty. This implementation creates the requested foundation; there was no existing employee request, manager approval, operator booking, registration, or Google Maps code to integrate or regression-test. The dashboard counts employees and managers from the real User collection and departments from the Department collection. Other statistics are `null` and displayed as “Not connected yet” until their models exist. Department Management supports creating, editing, and deleting departments with unique names and optional descriptions. Department totals are counted from MongoDB. Other sidebar destinations currently display module empty states.
 
 ## Local development on Windows
 
@@ -114,3 +114,40 @@ Build output, installed dependencies, downloaded test binaries, and browser scre
  #   p i c k m e s y s t e m  
  #   p i c k m e s y s t e m  
  
+## Department Management
+
+Open Department Management from the dashboard navigation. Enter a name (2?100 characters) and an optional description (up to 500 characters). Names are unique regardless of case or repeated spaces. Edit updates an existing department; Delete requires confirmation. Data persists in MongoDB and changes update the dashboard count.
+
+All department APIs require the verified, active Super Admin session:
+
+| Method | Endpoint | Action |
+| --- | --- | --- |
+| GET | /api/super-admin/departments | List departments |
+| POST | /api/super-admin/departments | Create with name and optional description |
+| PUT | /api/super-admin/departments/:id | Update name and description |
+| DELETE | /api/super-admin/departments/:id | Delete department |
+
+Users can be assigned to departments through User Management. Departments with assigned users cannot be deleted until those users are reassigned or unassigned.
+
+## User Management
+
+Super Administrators can create, edit, and delete Admin, Employee, Manager, and Operator accounts through User Management. Each user has a name, unique username, unique email, role, active/inactive status, and optional department. Search supports names, email, roles, and departments. The Super Administrator account is excluded and cannot be changed or deleted through these APIs.
+
+Passwords require at least 12 characters and at most 72 UTF-8 bytes. Passwords are hashed using bcrypt and never returned. An empty password field while editing preserves the current password. Created accounts are not marked email verified. Sign-in for these non-Super-Admin roles is not implemented by this change.
+
+| Method | Endpoint | Action |
+| --- | --- | --- |
+| GET | /api/super-admin/users | List users with department names |
+| POST | /api/super-admin/users | Create user |
+| PUT | /api/super-admin/users/:id | Update user and department assignment |
+| DELETE | /api/super-admin/users/:id | Delete user |
+
+Create accepts fullName, username, email, password, role, status, and departmentId (an existing department ID or null). Update accepts the same fields with password optional. All routes require an active, email-verified Super Administrator session. Department assignments and deletion use transactions to prevent dangling references.
+
+## Custom roles
+
+User Management has separate Users and Roles sections. In Roles, enter a unique role name and optional description. Created roles immediately appear in the user creation/editing Role selector and are stored in MongoDB. Existing built-in role values remain unchanged. Custom roles can be assigned to new or existing users and searched by display name.
+
+GET /api/super-admin/roles lists built-in and custom roles. POST /api/super-admin/roles accepts name (2-100 characters) and optional description (up to 500 characters). Both require the verified Super Administrator session. Duplicate names and built-in/reserved names are rejected. Custom role values use CUSTOM_ followed by the role document ID; user writes reject nonexistent roles.
+
+Custom roles identify responsibilities; they do not grant Super Administrator privileges or add new login flows. This section supports creating and listing roles.

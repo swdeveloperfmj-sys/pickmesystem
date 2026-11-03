@@ -6,9 +6,10 @@ const userSchema = new Schema(
     username: { type: String, required: true, unique: true, lowercase: true },
     email: { type: String, required: true, unique: true, lowercase: true },
     passwordHash: { type: String, required: true, select: false },
+    department: { type: Schema.Types.ObjectId, ref: "Department", default: null, index: true },
     role: {
       type: String,
-      enum: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE", "MANAGER", "OPERATOR"],
+      match: /^(SUPER_ADMIN|ADMIN|EMPLOYEE|MANAGER|OPERATOR|CUSTOM_[a-f\d]{24})$/,
       required: true,
     },
     status: { type: String, enum: ["ACTIVE", "INACTIVE"], default: "ACTIVE" },
@@ -23,6 +24,11 @@ userSchema.index(
   { unique: true, partialFilterExpression: { role: "SUPER_ADMIN" } },
 );
 export const User = mongoose.model("User", userSchema);
+export const Role = mongoose.model("Role", new Schema({
+  name: { type: String, required: true, maxlength: 100 },
+  nameKey: { type: String, required: true, unique: true },
+  description: { type: String, default: "", maxlength: 500 },
+}, { timestamps: true }));
 export const Department = mongoose.model(
   "Department",
   new Schema(
@@ -30,6 +36,7 @@ export const Department = mongoose.model(
       name: { type: String, required: true, trim: true, maxlength: 100 },
       nameKey: { type: String, required: true, unique: true },
       description: { type: String, default: "", maxlength: 500 },
+      assignmentVersion: { type: Number, default: 0, select: false },
     },
     { timestamps: true },
   ),
@@ -74,6 +81,7 @@ export async function initializeDatabase() {
     SetupState.init(),
     AuditLog.init(),
     Department.init(),
+    Role.init(),
   ]);
   if (await User.exists({ role: "SUPER_ADMIN" })) {
     await SetupState.updateOne(

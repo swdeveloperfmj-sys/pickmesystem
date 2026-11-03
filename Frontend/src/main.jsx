@@ -11,6 +11,7 @@ import {
 import { api } from "./api";
 import "./styles.css";
 import Departments from "./Departments";
+import Users from "./Users";
 
 const ThemeContext = createContext(null);
 
@@ -679,6 +680,8 @@ function Dashboard() {
             </>
           ) : section === "Department Management" ? (
             <Departments refreshKey={departmentRefresh} onChanged={load} />
+          ) : section === "User Management" ? (
+            <Users refreshKey={departmentRefresh} onChanged={load} />
           ) : (
             <section className="empty-state">
               <span className="welcome-symbol">◇</span>
