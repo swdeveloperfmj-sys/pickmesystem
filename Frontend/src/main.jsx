@@ -10,6 +10,7 @@ import {
 } from "react-router-dom";
 import { api } from "./api";
 import "./styles.css";
+import Departments from "./Departments";
 
 const ThemeContext = createContext(null);
 
@@ -496,6 +497,7 @@ function Dashboard() {
   const [error, setError] = useState("");
   const [section, setSection] = useState("Dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [departmentRefresh, setDepartmentRefresh] = useState(0);
   useEffect(() => {
     if (!menuOpen) return;
     const closeOnEscape = (event) => {
@@ -617,7 +619,10 @@ function Dashboard() {
                   : "Manage your organization from one secure workspace."}
               </p>
             </div>
-            <button className="secondary" onClick={load}>
+            <button className="secondary" aria-label="Refresh" onClick={() => {
+              load();
+              setDepartmentRefresh((value) => value + 1);
+            }}>
               ↻ Refresh
             </button>
           </div>
@@ -656,7 +661,7 @@ function Dashboard() {
                     directory.
                   </p>
                   <p className="muted">
-                    Department, transport, approval, and booking statistics will
+                    Transport, approval, and booking statistics will
                     appear when their modules are connected.
                   </p>
                 </div>
@@ -672,6 +677,8 @@ function Dashboard() {
                 <span className="badge">✓ Email verified</span>
               </div>
             </>
+          ) : section === "Department Management" ? (
+            <Departments refreshKey={departmentRefresh} onChanged={load} />
           ) : (
             <section className="empty-state">
               <span className="welcome-symbol">◇</span>

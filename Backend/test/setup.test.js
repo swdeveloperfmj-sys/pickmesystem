@@ -11,6 +11,7 @@ import {
   SuperAdminSetup,
   SetupState,
   AuditLog,
+  Department,
   initializeDatabase,
 } from "../src/models.js";
 import { readConfig } from "../src/config.js";
@@ -59,6 +60,7 @@ beforeEach(async () => {
     SuperAdminSetup.deleteMany({}),
     SetupState.deleteMany({}),
     AuditLog.deleteMany({}),
+    Department.deleteMany({}),
   ]);
   sent = [];
   failMail = false;
@@ -108,7 +110,7 @@ test("full setup, single-use code, authenticated dashboard, logout, and username
   await agent.get("/api/super-admin/auth/me").expect(200);
   const stats = await agent.get("/api/super-admin/dashboard/stats").expect(200);
   assert.equal(stats.body.totalEmployees, 0);
-  assert.equal(stats.body.totalDepartments, null);
+  assert.equal(stats.body.totalDepartments, 0);
   await agent.post("/api/super-admin/auth/logout").send({}).expect(204);
   await agent.get("/api/super-admin/auth/me").expect(401);
   for (const identifier of [details.username, details.email.toUpperCase()]) {
@@ -139,6 +141,46 @@ test("full setup, single-use code, authenticated dashboard, logout, and username
     1,
   );
 });
+test("department CRUD is protected, validated, unique, persistent, and reflected in dashboard totals", async () => {
+  const base = "/api/super-admin/departments";
+  const missingId = new mongoose.Types.ObjectId().toString();
+  await request(app).get(base).expect(401);
+  await request(app).post(base).send({ name: "Finance" }).expect(401);
+  await request(app).put(`${base}/${missingId}`).send({ name: "Finance" }).expect(401);
+  await request(app).delete(`${base}/${missingId}`).expect(401);
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const created = await request(app).post(base).set("Cookie", cookie)
+    .send({ name: "  Human   Resources  ", description: "People and culture" }).expect(201);
+  const id = created.body.department.id;
+  assert.equal(created.body.department.name, "Human Resources");
+  assert.equal(created.body.department.nameKey, undefined);
+  await request(app).post(base).set("Cookie", cookie).send({ name: "human resources" }).expect(409);
+  for (const body of [{ name: " " }, { name: "x" }, { name: "Finance", description: "x".repeat(501) }, { name: "Finance", role: "ADMIN" }]) {
+    await request(app).post(base).set("Cookie", cookie).send(body).expect(400);
+  }
+  await request(app).post(base).set("Cookie", cookie).send({ name: "Finance" }).expect(201);
+  await request(app).put(`${base}/${id}`).set("Cookie", cookie).send({ name: "FINANCE" }).expect(409);
+  const updated = await request(app).put(`${base}/${id}`).set("Cookie", cookie)
+    .send({ name: "People Operations", description: "Updated description" }).expect(200);
+  assert.equal(updated.body.department.description, "Updated description");
+  assert.equal((await Department.findById(id)).name, "People Operations");
+  const list = await request(app).get(base).set("Cookie", cookie).expect(200);
+  assert.deepEqual(list.body.departments.map((item) => item.name), ["Finance", "People Operations"]);
+  const stats = await request(app).get("/api/super-admin/dashboard/stats").set("Cookie", cookie).expect(200);
+  assert.equal(stats.body.totalDepartments, 2);
+  await request(app).put(`${base}/bad-id`).set("Cookie", cookie).send({ name: "Valid" }).expect(400);
+  await request(app).delete(`${base}/bad-id`).set("Cookie", cookie).expect(400);
+  await request(app).put(`${base}/${missingId}`).set("Cookie", cookie).send({ name: "Valid" }).expect(404);
+  await request(app).delete(`${base}/${missingId}`).set("Cookie", cookie).expect(404);
+  await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(204);
+  await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(404);
+  const after = await request(app).get("/api/super-admin/dashboard/stats").set("Cookie", cookie);
+  assert.equal(after.body.totalDepartments, 1);
+  await request(app).post(base).set("Cookie", cookie).set("Origin", "https://evil.example")
+    .send({ name: "Blocked" }).expect(403);
+});
+
 test("all setup endpoints remain closed even after the Super Admin is deleted", async () => {
   await complete();
   await User.deleteMany({});

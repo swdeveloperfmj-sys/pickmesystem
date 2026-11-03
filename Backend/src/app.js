@@ -12,7 +12,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { z } from "zod";
-import { User, SuperAdminSetup, SetupState, AuditLog } from "./models.js";
+import { User, SuperAdminSetup, SetupState, AuditLog, Department } from "./models.js";
 import { isAllowedOrigin } from "./origin.js";
 
 const registration = z
@@ -61,6 +61,19 @@ const login = z
     password: z.string().min(1).max(200),
   })
   .strict();
+const departmentInput = z.object({
+  name: z.string().trim().min(2).max(100).regex(/^[^<>\p{Cc}]+$/u)
+    .transform((value) => value.replace(/\s+/g, " ")),
+  description: z.string().trim().max(500).default(""),
+}).strict();
+const departmentId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid department ID");
+const publicDepartment = (department) => ({
+  id: department.id,
+  name: department.name,
+  description: department.description,
+  createdAt: department.createdAt,
+  updatedAt: department.updatedAt,
+});
 class ApiError extends Error {
   constructor(status, message) {
     super(message);
@@ -397,6 +410,34 @@ export function createApp({ config, mailer, limits = true }) {
     res.json({ user: publicUser(user) });
   });
   app.use("/api/super-admin", requireSuperAdmin);
+  app.get("/api/super-admin/departments", async (_req, res) => {
+    const departments = await Department.find().sort({ nameKey: 1 });
+    res.json({ departments: departments.map(publicDepartment) });
+  });
+  async function saveDepartment(req, res, update) {
+    const id = update ? departmentId.parse(req.params.id) : undefined;
+    const data = departmentInput.parse(req.body);
+    const values = { ...data, nameKey: data.name.toLowerCase() };
+    let department;
+    try {
+      department = update
+        ? await Department.findByIdAndUpdate(id, { $set: values }, { returnDocument: "after", runValidators: true })
+        : await Department.create(values);
+    } catch (error) {
+      if (error.code === 11000) throw new ApiError(409, "A department with this name already exists.");
+      throw error;
+    }
+    if (!department) throw new ApiError(404, "Department not found.");
+    res.status(update ? 200 : 201).json({ department: publicDepartment(department) });
+  }
+  app.post("/api/super-admin/departments", (req, res) => saveDepartment(req, res, false));
+  app.put("/api/super-admin/departments/:id", (req, res) => saveDepartment(req, res, true));
+  app.delete("/api/super-admin/departments/:id", async (req, res) => {
+    const id = departmentId.parse(req.params.id);
+    const department = await Department.findByIdAndDelete(id);
+    if (!department) throw new ApiError(404, "Department not found.");
+    res.sendStatus(204);
+  });
   app.get("/api/super-admin/auth/me", (req, res) =>
     res.json({ user: publicUser(req.user) }),
   );
@@ -411,14 +452,15 @@ export function createApp({ config, mailer, limits = true }) {
     res.sendStatus(204);
   });
   app.get("/api/super-admin/dashboard/stats", async (_req, res) => {
-    const [totalEmployees, totalManagers] = await Promise.all([
+    const [totalEmployees, totalManagers, totalDepartments] = await Promise.all([
       User.countDocuments({ role: "EMPLOYEE" }),
       User.countDocuments({ role: "MANAGER" }),
+      Department.countDocuments(),
     ]);
     res.json({
       totalEmployees,
       totalManagers,
-      totalDepartments: null,
+      totalDepartments,
       totalTransportRequests: null,
       pendingApprovals: null,
       completedBookings: null,

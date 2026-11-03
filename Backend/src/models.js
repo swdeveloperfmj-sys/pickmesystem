@@ -23,6 +23,17 @@ userSchema.index(
   { unique: true, partialFilterExpression: { role: "SUPER_ADMIN" } },
 );
 export const User = mongoose.model("User", userSchema);
+export const Department = mongoose.model(
+  "Department",
+  new Schema(
+    {
+      name: { type: String, required: true, trim: true, maxlength: 100 },
+      nameKey: { type: String, required: true, unique: true },
+      description: { type: String, default: "", maxlength: 500 },
+    },
+    { timestamps: true },
+  ),
+);
 export const SuperAdminSetup = mongoose.model(
   "SuperAdminSetup",
   new Schema(
@@ -62,6 +73,7 @@ export async function initializeDatabase() {
     SuperAdminSetup.init(),
     SetupState.init(),
     AuditLog.init(),
+    Department.init(),
   ]);
   if (await User.exists({ role: "SUPER_ADMIN" })) {
     await SetupState.updateOne(

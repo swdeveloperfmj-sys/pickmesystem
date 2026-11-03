@@ -217,6 +217,41 @@ test(
         path: `${artifactDir}/dashboard-mobile.png`,
         fullPage: true,
       });
+      async function selectSection(name) {
+        const menu = page.getByRole("button", { name: "Navigation menu" });
+        if (await menu.isVisible() && await menu.getAttribute("aria-expanded") === "false") await menu.click();
+        await page.getByRole("button", { name, exact: true }).click();
+      }
+      await selectSection("Department Management");
+      await page.getByLabel("Department name", { exact: true }).fill("Human Resources");
+      await page.getByLabel("Description (optional)", { exact: true }).fill("People and culture");
+      await page.getByRole("button", { name: "Create department", exact: true }).click();
+      await page.getByText("Department created.", { exact: true }).waitFor();
+      await page.reload();
+      await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+      assert.equal(await page.locator(".metric").filter({ hasText: "Total Departments" }).locator("strong").innerText(), "1");
+      await selectSection("Department Management");
+      const department = page.getByRole("article", { name: "Human Resources", exact: true });
+      await department.getByRole("button", { name: "Edit", exact: true }).click();
+      await page.getByLabel("Department name", { exact: true }).fill("People Operations");
+      await page.getByRole("button", { name: "Save changes", exact: true }).click();
+      await page.getByText("Department updated.", { exact: true }).waitFor();
+      await checkResponsiveLayout();
+      await page.screenshot({ path: `${artifactDir}/departments-desktop.png`, fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByRole("switch", { name: "Dark mode" }).click();
+      await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+      await page.screenshot({ path: `${artifactDir}/departments-dark-mobile.png`, fullPage: true });
+      const updatedDepartment = page.getByRole("article", { name: "People Operations", exact: true });
+      await updatedDepartment.getByRole("button", { name: "Delete", exact: true }).click();
+      await updatedDepartment.getByRole("button", { name: "Keep department" }).click();
+      assert.equal(await User.countDocuments({ role: "SUPER_ADMIN" }), 1);
+      await updatedDepartment.getByRole("button", { name: "Delete", exact: true }).click();
+      await updatedDepartment.getByRole("button", { name: "Confirm delete" }).click();
+      await page.getByText("Department deleted.", { exact: true }).waitFor();
+      await selectSection("Dashboard");
+      assert.equal(await page.locator(".metric").filter({ hasText: "Total Departments" }).locator("strong").innerText(), "0");
+      await page.getByRole("switch", { name: "Dark mode" }).click();
       await logout();
       await page.waitForURL("**/super-admin/login");
       await checkResponsiveLayout();
