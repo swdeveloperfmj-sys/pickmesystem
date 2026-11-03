@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   BrowserRouter,
@@ -498,6 +498,9 @@ function Dashboard() {
   const [error, setError] = useState("");
   const [section, setSection] = useState("Dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
+  const logoutDialog = useRef(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const [departmentRefresh, setDepartmentRefresh] = useState(0);
   useEffect(() => {
     if (!menuOpen) return;
@@ -528,11 +531,16 @@ function Dashboard() {
     load();
   }, []);
   async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    setLogoutError("");
     try {
       await api("/super-admin/auth/logout", {});
       navigate("/super-admin/login", { replace: true });
     } catch (err) {
-      setError(err.message);
+      setLogoutError(err.message);
+    } finally {
+      setLoggingOut(false);
     }
   }
   if (!user)
@@ -544,6 +552,23 @@ function Dashboard() {
     );
   return (
     <div className="dashboard">
+      <dialog
+        ref={logoutDialog}
+        className="logout-dialog"
+        aria-labelledby="logout-title"
+        aria-describedby="logout-description"
+        onCancel={(event) => { if (loggingOut) event.preventDefault(); }}
+        onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }}
+      >
+        <span className="eyebrow accent">YOUR SESSION</span>
+        <h2 id="logout-title">Log out?</h2>
+        <p id="logout-description" className="muted">Are you sure you want to log out? You can sign in again anytime.</p>
+        {logoutError && <div role="alert" className="error">{logoutError}</div>}
+        <div className="logout-actions">
+          <button type="button" className="secondary" autoFocus disabled={loggingOut} onClick={() => logoutDialog.current.close()}>Cancel</button>
+          <button type="button" className="primary" disabled={loggingOut} onClick={logout}>{loggingOut ? "Logging out…" : "Logout"}</button>
+        </div>
+      </dialog>
       <aside className="sidebar">
         <div className="sidebar-heading">
           <Brand />
@@ -585,7 +610,10 @@ function Dashboard() {
             <strong>{user.fullName}</strong>
             <small>Super Administrator</small>
           </div>
-          <button onClick={logout} title="Logout" aria-label="Logout">
+          <button onClick={() => {
+            setLogoutError("");
+            logoutDialog.current.showModal();
+          }} title="Logout" aria-label="Logout">
             ↪
           </button>
         </div>

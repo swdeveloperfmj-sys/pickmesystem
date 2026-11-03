@@ -65,6 +65,10 @@ test(
       });
       page.setDefaultTimeout(15000);
       const pageErrors = [];
+      let logoutRequests = 0;
+      page.on("request", (request) => {
+        if (request.url().endsWith("/api/super-admin/auth/logout")) logoutRequests++;
+      });
       page.on("pageerror", (error) => pageErrors.push(error.message));
       await page.goto(config.APP_ORIGIN);
       await page.waitForURL("**/super-admin/setup");
@@ -105,7 +109,22 @@ test(
         if (await menu.isVisible() && await menu.getAttribute("aria-expanded") === "false") {
           await menu.click();
         }
-        await page.getByRole("button", { name: "Logout", exact: true }).click();
+        const before = logoutRequests;
+        const trigger = page.getByRole("button", { name: "Logout", exact: true });
+        await trigger.click();
+        const dialog = page.getByRole("dialog", { name: "Log out?", exact: true });
+        await dialog.waitFor();
+        assert.equal(logoutRequests, before);
+        await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+        assert.equal(logoutRequests, before);
+        await trigger.click();
+        await page.keyboard.press("Escape");
+        await dialog.waitFor({ state: "hidden" });
+        assert.equal(logoutRequests, before);
+        await trigger.click();
+        await page.screenshot({ path: `${artifactDir}/logout-confirmation.png`, fullPage: true });
+        await dialog.getByRole("button", { name: "Logout", exact: true }).click();
       }
       const themeSwitch = page.getByRole("switch", { name: "Dark mode" });
       if (await themeSwitch.getAttribute("aria-checked") === "true") {
