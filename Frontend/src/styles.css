@@ -1136,6 +1136,21 @@ select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .request-card .department-actions button { white-space: normal; }
 .transport-form { margin: 20px 0; }
 .transport-fields { display: flex; flex-direction: column; gap: 18px; min-width: 0; border: 0; padding: 0; margin: 0; }
+.user-access { grid-column: 1 / -1; min-width: 0; margin: 24px 0 0; padding: 18px; border: 1px solid var(--border); border-radius: 12px; }
+.user-access legend { padding: 0 8px; font-size: 14px; font-weight: 700; }
+.user-access > p { margin-top: 0; }
+.access-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 600px) { .access-options { grid-template-columns: minmax(0, 1fr); } }
+.access-option { display: flex; flex-direction: row; align-items: flex-start; gap: 12px; padding: 12px; margin: 0; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.access-option:has(input:checked) { border-color: var(--gold); background: var(--gold-soft); }
+.access-option input { width: 18px; min-width: 18px; height: 18px; min-height: 18px; margin: 2px 0 0; padding: 0; accent-color: var(--gold); }
+.access-option strong { display: block; font-size: 13px; }
+.access-option small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.staff-dashboard .staff-header-inner { max-width: 1240px; }
+.staff-dashboard .staff-brand-area b { padding: 0 12px; color: var(--muted); }
+.staff-dashboard .staff-header { position: relative; }
+.staff-history { padding-left: 20px; line-height: 1.8; font-size: 12px; }
+.staff-history li { margin-bottom: 12px; }
 .transport-action { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
 .check-label { flex-direction: row; align-items: flex-start; line-height: 1.7; gap: 12px; }
 .check-label input { width: 20px; height: 20px; min-height: 20px; flex-shrink: 0; accent-color: var(--gold); margin: 1px 0 0; padding: 0; }

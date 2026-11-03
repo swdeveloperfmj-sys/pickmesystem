@@ -1,3 +1,4 @@
+import { hasAccess } from "./access.js";
 export const factoryRequesters = ["Production Executive", "Quality Assurance Executive", "Engineering Executive", "D&D Executive", "HR Executive"];
 export const officeRequesters = ["Accounts Executive", "Sales Coordinator", "Senior Audit Associate"];
 export const approverDesignations = ["Sales Manager", "Finance Manager", "Head of HR", "Operations Manager", "Factory Manager", "Engineering Manager", "Quality Assurance Manager", "Executive Assistant to the Director"];
@@ -10,10 +11,10 @@ export const sopConfig = {
   minimumNoticeMinutes: 30,
   documentStatus: "For management approval",
 };
-// Request details are collected per trip; only assigned account roles grant workflow authority.
-export const canRequest = (user) => Boolean(user.role && user.role !== "SUPER_ADMIN");
-export const canApprove = (user) => ["MANAGER", "ADMIN"].includes(user.role);
-export const canBook = (user) => user.role === "OPERATOR";
+// Explicit Super Admin grants control actions; legacy accounts retain their role defaults.
+export const canRequest = (user) => hasAccess(user, "REQUESTS");
+export const canApprove = (user) => hasAccess(user, "APPROVALS");
+export const canBook = (user) => hasAccess(user, "BOOKINGS");
 export const transportPermissions = (user) => ({
   request: canRequest(user), approve: canApprove(user), book: canBook(user),
   monitor: user.role === "SUPER_ADMIN",

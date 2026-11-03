@@ -18,6 +18,7 @@ const userSchema = new Schema(
       match: /^(SUPER_ADMIN|ADMIN|EMPLOYEE|MANAGER|OPERATOR|CUSTOM_[a-f\d]{24})$/,
       required: true,
     },
+    sidebarAccess: { type: [String], enum: ["DASHBOARD", "REQUESTS", "APPROVALS", "BOOKINGS", "REPORTS", "HISTORY"], default: undefined },
     status: { type: String, enum: ["ACTIVE", "INACTIVE"], default: "ACTIVE" },
     isActive: { type: Boolean, default: true },
     isEmailVerified: { type: Boolean, default: false },

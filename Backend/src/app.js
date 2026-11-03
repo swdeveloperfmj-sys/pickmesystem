@@ -16,6 +16,7 @@ import { User, SuperAdminSetup, SetupState, AuditLog, Department, Role, Transpor
 import { registerTransport } from "./transport.js";
 import { isAllowedOrigin } from "./origin.js";
 import { sopConfig } from "./sop.js";
+import { staffModules, sidebarAccess } from "./access.js";
 
 const registration = z
   .object({
@@ -78,6 +79,7 @@ const managedUserInput = z.object({
   role: z.string().regex(/^(ADMIN|EMPLOYEE|MANAGER|OPERATOR|CUSTOM_[a-f\d]{24})$/, "Select a valid role"),
   status: z.enum(["ACTIVE", "INACTIVE"]),
   departmentId: departmentId.nullable(),
+  sidebarAccess: z.array(z.enum(staffModules)).max(staffModules.length).refine((items) => new Set(items).size === items.length, "Select each section once").optional(),
 }).strict();
 const userPassword = z.string().min(6).refine(
   (value) => Buffer.byteLength(value, "utf8") <= 72,
@@ -94,6 +96,7 @@ const builtinRoles = [
 const publicRole = (role) => ({ value: `CUSTOM_${role.id}`, name: role.name, description: role.description, builtIn: false });
 const managedUser = (user) => ({
   ...publicUser(user),
+  sidebarAccess: sidebarAccess(user),
   sopAcknowledgedAt: user.sopAcknowledgedAt,
   departmentId: user.department?._id?.toString() || null,
   department: user.department ? { id: user.department.id, name: user.department.name } : null,

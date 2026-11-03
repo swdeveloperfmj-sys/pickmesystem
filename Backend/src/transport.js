@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { User, Department, TransportRequest } from "./models.js";
 import { sopConfig, transportPermissions, canRequest, canApprove, canBook, eligibleVehicles } from "./sop.js";
+import { sidebarAccess, hasAccess } from "./access.js";
 
 const fail = (status, message) => { const error = new Error(message); error.status = status; throw error; };
 const id = z.string().regex(/^[a-f\d]{24}$/i, "Invalid record ID");
@@ -32,7 +33,7 @@ const actionInput = z.object({
   routeVerified: z.boolean().optional(), completionMessageChecked: z.boolean().optional(),
 }).strict();
 const active = (user) => user && user.isActive && user.status === "ACTIVE";
-const staffProfile = (user, department) => ({ id: user.id, fullName: user.fullName, username: user.username, contact: user.contact || "", role: user.role, departmentId: department?.id || "", department: department?.name || "", permissions: transportPermissions(user), sopAcknowledgedAt: user.sopAcknowledgedAt });
+const staffProfile = (user, department) => ({ id: user.id, fullName: user.fullName, username: user.username, contact: user.contact || "", role: user.role, sidebarAccess: sidebarAccess(user), departmentId: department?.id || "", department: department?.name || "", permissions: transportPermissions(user), sopAcknowledgedAt: user.sopAcknowledgedAt });
 const publicRequest = (record) => ({ ...record.toObject(), id: record.id });
 const event = (user, action, note = "") => ({ action, actor: user._id, actorName: user.fullName, at: new Date(), note });
 const notice = (pickup) => { if (new Date(pickup).getTime() - Date.now() < 30 * 60000) fail(400, "The request and approval must be shared at least 30 minutes before pickup. Choose a later pickup time."); };
@@ -85,10 +86,14 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     res.json({ user: staffProfile(user, user.department && await Department.findById(user.department)) });
   });
   router.get("/approvers", async (_req, res) => {
-    const users = await User.find({ isActive: true, status: "ACTIVE", role: { $in: ["MANAGER", "ADMIN"] } });
-    res.json({ approvers: users.map((user) => ({ id: user.id, fullName: user.fullName })) });
+    const users = await User.find({ isActive: true, status: "ACTIVE", role: { $ne: "SUPER_ADMIN" }, $or: [{ sidebarAccess: "APPROVALS" }, { sidebarAccess: { $exists: false }, role: { $in: ["MANAGER", "ADMIN"] } }] });
+    res.json({ approvers: users.filter(canApprove).map((user) => ({ id: user.id, fullName: user.fullName })) });
   });
   const visible = (user) => user.role === "SUPER_ADMIN" || canBook(user) ? {} : { $or: [{ requester: user._id }, { approver: user._id }] };
+  router.use("/requests", (req, _res, next) => {
+    if (req.user.role !== "SUPER_ADMIN" && !sidebarAccess(req.user).length) fail(403, "Your administrator has not granted transport workspace access.");
+    next();
+  });
   router.get("/requests", async (req, res) => {
     const records = await TransportRequest.find(visible(req.user)).sort({ createdAt: -1 });
     res.json({ requests: records.map(publicRequest) });
@@ -116,7 +121,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
       text.parse(data.receiverName); contact.parse(data.receiverContact); text.parse(data.itemDetails);
       if (data.passengers.length || data.passengerCount !== 0) fail(400, "Flash requests are for item/sample delivery, not passengers.");
     }
-    const eligible = eligibleVehicles({ ...data, category: canApprove(user) ? "MANAGER" : "EXECUTIVE_OR_BELOW" });
+    const eligible = eligibleVehicles({ ...data, category: ["MANAGER", "ADMIN"].includes(user.role) ? "MANAGER" : "EXECUTIVE_OR_BELOW" });
     if (!eligible.includes(data.vehicle)) fail(400, `Annexure B permits: ${eligible.join(", ")} for this request.`);
     const { approverId, officialOnly, requestShared, version, requesterDesignation, requesterContact, departmentId, workLocation, approverDesignation, ...details } = data;
     const values = { ...details, pickupAt: new Date(data.pickupAt), requester: user._id, approver: approver._id,
@@ -139,7 +144,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     if (user.role === "SUPER_ADMIN") fail(403, "Use the responsible employee's own account to perform this workflow action.");
     const record = await TransportRequest.findOne({ _id: id.parse(req.params.id), ...visible(user) });
     if (!record) fail(404, "Request not found.");
-    const own = String(record.requester) === user.id;
+    const own = String(record.requester) === user.id && hasAccess(user, "REQUESTS");
     const assigned = String(record.approver) === user.id && canApprove(user);
     const booking = canBook(user) && user.role !== "SUPER_ADMIN";
     const status = record.status;

@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import Roles from "./Roles";
 import UsersTable from "./UsersTable";
+import { staffModules, defaultAccess } from "./access";
 
-const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "EMPLOYEE", status: "ACTIVE", departmentId: "" };
+const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "EMPLOYEE", status: "ACTIVE", departmentId: "", sidebarAccess: defaultAccess("EMPLOYEE") };
 
 export default function Users({ refreshKey, onChanged }) {
   const [section, setSection] = useState("users");
@@ -40,7 +41,8 @@ export default function Users({ refreshKey, onChanged }) {
   function create() { reset(); editor.current.showModal(); }
   function confirmDelete(user) { setDeleting(user); setDialogError(""); deleteDialog.current.showModal(); }
   function closeDelete() { if (!busy) { deleteDialog.current.close(); setDeleting(null); setDialogError(""); } }
-  function change(event) { setForm((value) => ({ ...value, [event.target.name]: event.target.value })); }
+  function change(event) { const { name, value } = event.target; setForm((current) => ({ ...current, [name]: value })); }
+  function toggleAccess(key) { setForm((current) => ({ ...current, sidebarAccess: current.sidebarAccess.includes(key) ? current.sidebarAccess.filter((item) => item !== key) : [...current.sidebarAccess, key] })); }
   async function save(event) {
     event.preventDefault();
     if (busy) return;
@@ -68,7 +70,7 @@ export default function Users({ refreshKey, onChanged }) {
   }
   function edit(user) {
     setEditing(user.id);
-    setForm({ fullName: user.fullName, username: user.username, contact: user.contact || "", password: "", role: user.role, status: user.status, departmentId: user.departmentId || "" });
+    setForm({ fullName: user.fullName, username: user.username, contact: user.contact || "", password: "", role: user.role, status: user.status, departmentId: user.departmentId || "", sidebarAccess: user.sidebarAccess ?? defaultAccess(user.role) });
     setDeleting(null); setError(""); setMessage("");
     setDialogError(""); editor.current.showModal();
   }
@@ -120,6 +122,13 @@ export default function Users({ refreshKey, onChanged }) {
               </select>
             </div>
             {!loading && departments.length === 0 && <p className="muted">Create a department in Department Management to assign users to it.</p>}
+            <fieldset className="user-access" disabled={busy || loading}>
+              <legend>Sidebar access</legend>
+              <p className="muted">Choose the sections this user can open. Approval and booking access also allow the actions described below.</p>
+              <div className="access-options">{staffModules.map((module) => <label className="access-option" key={module.key}><input type="checkbox" checked={form.sidebarAccess.includes(module.key)} onChange={() => toggleAccess(module.key)} /><span><strong>{module.title}</strong><small>{module.description}</small></span></label>)}</div>
+              <button type="button" className="text-button" onClick={() => setForm((current) => ({ ...current, sidebarAccess: defaultAccess(current.role) }))}>Use role defaults</button>
+              {!form.sidebarAccess.length && <p className="info">This user can sign in but has no workspace sections until you grant access.</p>}
+            </fieldset>
             <div className="user-dialog-actions">
               <button type="submit" className="primary" disabled={busy || loading}>{busy ? "Saving…" : editing ? "Save changes" : "Create user"}</button>
               <button type="button" className="secondary" disabled={busy} onClick={closeEditor}>Cancel</button>

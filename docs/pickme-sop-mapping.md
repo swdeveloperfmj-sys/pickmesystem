@@ -6,9 +6,9 @@ Source: `C:/Users/sabry/Downloads/PickMe SOP Simplified.pdf`, four pages, headed
 
 The user explicitly removed the account-level **Transport profile (SOP)** on 3 November 2026. The document rules below are source context; they do not override this later instruction.
 
-- Active staff accounts submit their own requests without a preconfigured designation or location, including accounts without an assigned department.
+- Active staff accounts granted Transport Requests access submit their own requests without a preconfigured designation or location, including accounts without an assigned department.
 - Each request collects designation, contact, an existing department, work location and approver designation. Requester and approver names come from their selected accounts. These are historical request snapshots, not account profile updates.
-- Manager and Admin accounts may approve requests assigned to them. Operator accounts perform Administrative Assistant booking actions. Custom role names and typed designations do not grant approval or booking permissions.
+- Super Admin now grants Dashboard, Transport Requests, Approval Management, Booking Management, Reports and Request History in the user create/edit dialog. Approval access permits decisions on assigned requests; booking access permits viewing all requests and performing Administrative Assistant booking actions. Explicit grants override role defaults, including an empty selection. Legacy accounts without saved grants retain Manager/Admin approval and Operator booking defaults. Typed designations and custom role names do not grant permissions.
 - The requester name remains bound to the signed-in account. Ride passenger counts must match the passenger list; Flash requires receiver name/contact and item/sample details.
 - SOP acknowledgement, official-purpose confirmations, notice periods, vehicle rules, version checks and external WhatsApp/PickMe confirmations remain in place. Manager vehicle eligibility follows the trusted Manager/Admin account role.
 

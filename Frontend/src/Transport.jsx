@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "./api";
+import StaffSidebar from "./StaffSidebar";
+import { staffModules } from "./access";
 
 const label = (value) => value?.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
 const localDate = (value) => { const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
@@ -55,7 +57,7 @@ export function SopSummary() {
       <li>Coordinate with the driver, verify pickup/route/destination and the completion message, and report changes, cancellations or delays immediately.</li>
       <li>HR must explain the SOP to new recruits and retain their acknowledgement in the personal file. This acknowledgement record supplements that process.</li>
     </ul>
-    <p className="muted">Enter your designation, contact, department and location with each request. Assigned Manager or Admin accounts approve requests; Operator accounts record bookings as the Administrative Assistant.</p>
+    <p className="muted">Enter your designation, contact, department and location with each request. Your Super Administrator assigns approval and booking access. Only the assigned approver can approve a request; authorized booking staff record the external PickMe booking.</p>
   </section>;
 }
 
@@ -68,11 +70,13 @@ export function StaffWorkspace({ ThemeToggle, Brand }) {
   const policyDialog = useRef(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [overview, setOverview] = useState(null);
+  const [selectedSection, setSelectedSection] = useState("DASHBOARD");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   async function load() {
     try { const data = await api("/transport/me"); setUser(data.user); setError(""); }
     catch (err) { if (err.status === 401) navigate("/login", { replace: true }); else setError(err.message); }
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); window.addEventListener("focus", load); return () => window.removeEventListener("focus", load); }, []);
   async function acknowledge() {
     setBusy(true); setError("");
     try { const data = await api("/transport/acknowledge", { acknowledged: true }); setUser(data.user); policyDialog.current.close(); }
@@ -84,13 +88,15 @@ export function StaffWorkspace({ ThemeToggle, Brand }) {
     catch (err) { setError(err.message); dialog.current.close(); } finally { setBusy(false); }
   }
   if (!user) return <main className="loading"><p role="status">{error || "Opening transport workspace…"}</p><button className="secondary" onClick={load}>Retry</button></main>;
+  const section = user.sidebarAccess.includes(selectedSection) ? selectedSection : user.sidebarAccess[0];
+  const sectionTitle = staffModules.find((module) => module.key === section)?.title || "Workspace access";
   const initials = user.fullName.trim().split(/\s+/).slice(0, 2).map((name) => name[0]).join("").toUpperCase();
   const overviewCards = [
     ["Total requests", "total", "route"], ["Awaiting approval", "pending", "clock"],
     ["Active trips", "active", "trip"], ["Completed", "completed", "check"],
   ];
-  return <main className="staff-workspace">
-    <header className="staff-header"><div className="staff-header-inner"><div className="staff-brand-area"><Brand /><span className="staff-portal-tag">Staff portal</span></div><div className="header-actions"><ThemeToggle /><span className="staff-profile-avatar" title={user.fullName} aria-label={user.fullName}>{initials}</span><button className="staff-logout" onClick={() => dialog.current.showModal()}><WorkspaceIcon type="logout" size={18} />Logout</button></div></div></header>
+  return <div className={`dashboard staff-dashboard${sidebarCollapsed ? " sidebar-collapsed" : ""}`}><StaffSidebar collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} user={user} Brand={Brand} section={section} onSelect={setSelectedSection} onLogout={() => dialog.current.showModal()} Icon={WorkspaceIcon} /><main className="dashboard-main staff-workspace">
+    <header className="staff-header"><div className="staff-header-inner"><div className="staff-brand-area"><span>Staff portal <b>/</b> {sectionTitle}</span></div><div className="header-actions"><ThemeToggle /><span className="staff-profile-avatar" title={user.fullName} aria-label={user.fullName}>{initials}</span><button className="staff-logout" onClick={() => dialog.current.showModal()}><WorkspaceIcon type="logout" size={18} />Logout</button></div></div></header>
     <dialog ref={dialog} className="logout-dialog" aria-labelledby="staff-logout-title" onCancel={(event) => { if (busy) event.preventDefault(); }}>
       <h2 id="staff-logout-title">Log out?</h2><p className="muted">Are you sure you want to log out?</p>
       <div className="logout-actions"><button className="secondary" autoFocus disabled={busy} onClick={() => dialog.current.close()}>Cancel</button><button className="primary" disabled={busy} onClick={logout}>Logout</button></div>
@@ -102,23 +108,23 @@ export function StaffWorkspace({ ThemeToggle, Brand }) {
       <footer className="staff-policy-footer">{!user.sopAcknowledgedAt ? <button className="primary" disabled={busy} onClick={acknowledge}>{busy ? "Saving…" : "I have read and understood the SOP"}</button> : <><span className="muted">Acknowledged {displayDate(user.sopAcknowledgedAt)} (Sri Lanka)</span><button className="secondary" onClick={() => policyDialog.current.close()}>Done</button></>}</footer>
     </dialog>
     <div className="staff-content page-enter">
-      <div className="staff-page-label"><span>WORKSPACE <span aria-hidden="true">/</span> Transport</span><button className="staff-refresh" aria-label="Refresh" onClick={() => { load(); setRefreshKey((value) => value + 1); }}><WorkspaceIcon type="refresh" size={16} />Refresh</button></div>
-      <section className="staff-hero">
+      <div className="staff-page-label"><span>WORKSPACE <span aria-hidden="true">/</span> {sectionTitle}</span><button className="staff-refresh" aria-label="Refresh" onClick={() => { load(); setRefreshKey((value) => value + 1); }}><WorkspaceIcon type="refresh" size={16} />Refresh</button></div>
+      {section === "DASHBOARD" && <section className="staff-hero">
         <div className="staff-hero-copy"><span className="eyebrow accent">FMJ CORPORATE TRANSPORT</span><h1>Welcome, {user.fullName}</h1><p>Your work takes you places.<br />Keep every journey organized, from request to arrival.</p><div className="staff-hero-tags"><span><WorkspaceIcon type="user" size={14} />{label(user.role)}</span>{user.department && <span><WorkspaceIcon type="route" size={14} />{user.department}</span>}</div></div>
         <div className="staff-journey" aria-hidden="true"><div className="staff-journey-heading"><span className="staff-journey-symbol"><WorkspaceIcon type="trip" size={26} /></span><div><strong>A smoother way to work.</strong><span>One workspace. Every journey.</span></div></div><div className="staff-journey-stops"><span><i>01</i>Request</span><b /><span><i>02</i>Approve</span><b /><span><i>03</i>Travel</span></div></div>
-      </section>
+      </section>}
       {error && <div role="alert" className="error">{error}</div>}
-      <section className="staff-overview" aria-label="Transport overview">{overviewCards.map(([title, key, icon]) => <article className="staff-stat" key={key}><div><span>{title}</span><strong>{overview ? overview[key].toLocaleString() : "—"}</strong></div><span className="staff-stat-icon"><WorkspaceIcon type={icon} /></span></article>)}</section>
+      {section === "DASHBOARD" && <section className="staff-overview" aria-label="Transport overview">{overviewCards.map(([title, key, icon]) => <article className="staff-stat" key={key}><div><span>{title}</span><strong>{overview ? overview[key].toLocaleString() : "—"}</strong></div><span className="staff-stat-icon"><WorkspaceIcon type={icon} /></span></article>)}</section>}
       <div className="staff-support-grid">
         <section className="staff-guidelines"><span className="staff-support-icon"><WorkspaceIcon type="book" /></span><div className="staff-support-copy"><div className="staff-support-title"><h2>Travel guidelines</h2><span className={`staff-policy-status${user.sopAcknowledgedAt ? " is-read" : ""}`}>{user.sopAcknowledgedAt ? "Acknowledged" : "Please review"}</span></div><p>Official trips only. Share your request and approval at least 30 minutes before pickup.</p></div><button className="secondary" onClick={() => policyDialog.current.showModal()}>Read guidelines <span aria-hidden="true">↗</span></button></section>
       </div>
-      <TransportPanel user={user} refreshKey={refreshKey} onStats={setOverview} />
+      {!section ? <section className="empty-state"><h2>No workspace access assigned</h2><p className="muted">Ask your Super Administrator to grant sidebar access in User Management.</p></section> : <TransportPanel key={`${section}:${user.sidebarAccess.join(",")}`} user={user} section={sectionTitle} refreshKey={refreshKey} onStats={setOverview} />}
     </div>
-  </main>;
+  </main></div>;
 }
 
 function RequestForm({ user, approvers, departments, record, onClose, onSaved }) {
-  const [form, setForm] = useState(() => ({ ...blank, requesterDesignation: record?.requesterDetails.designation || "", requesterContact: record?.requesterDetails.contact || user.contact || "", departmentId: record?.requesterDetails.departmentId || departments.find((department) => department.name === record?.requesterDetails.department)?.id || user.departmentId || "", workLocation: record?.requesterDetails.workLocation || "", approverDesignation: record?.approverDetails.designation || "", passengerCount: record?.passengers.length || 1,
+  const [form, setForm] = useState(() => ({ ...blank, requesterDesignation: record?.requesterDetails.designation || "", requesterContact: record?.requesterDetails.contact || user.contact || "", departmentId: record?.requesterDetails.departmentId || departments.find((department) => department.name === record?.requesterDetails.department)?.id || user.departmentId || "", workLocation: record?.requesterDetails.workLocation || "", approverDesignation: record?.approverDetails.designation || "",
     ...(record ? { ...record, approverId: String(record.approver), pickupAt: localDate(record.pickupAt), otherPassengers: record.passengers.filter((person) => person.name.toLowerCase() !== user.fullName.toLowerCase()).map((person) => person.name + " | " + person.designation).join("\n"), officialOnly: false, requestShared: false } : {}) }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -130,7 +136,7 @@ function RequestForm({ user, approvers, departments, record, onClose, onSaved })
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError("");
     try {
-      const body = { requesterDesignation: form.requesterDesignation, requesterContact: form.requesterContact, departmentId: form.departmentId, workLocation: form.workLocation, approverDesignation: form.approverDesignation, passengerCount: form.service === "RIDE" ? Number(form.passengerCount) : 0, service: form.service, approverId: form.approverId, pickupAt: new Date(form.pickupAt).toISOString(), pickup: form.pickup, stopover: form.stopover, destination: form.destination, vehicle: form.vehicle, deliveryRoute: form.deliveryRoute, purpose: form.purpose, justification: form.justification,
+      const body = { requesterDesignation: form.requesterDesignation, requesterContact: form.requesterContact, departmentId: form.departmentId, workLocation: form.workLocation, approverDesignation: form.approverDesignation, passengerCount: form.service === "RIDE" ? passengers.length : 0, service: form.service, approverId: form.approverId, pickupAt: new Date(form.pickupAt).toISOString(), pickup: form.pickup, stopover: form.stopover, destination: form.destination, vehicle: form.vehicle, deliveryRoute: form.deliveryRoute, purpose: form.purpose, justification: form.justification,
         passengers: form.service === "RIDE" ? passengers : [], receiverName: form.service === "FLASH" ? form.receiverName : "", receiverContact: form.service === "FLASH" ? form.receiverContact : "", itemDetails: form.service === "FLASH" ? form.itemDetails : "", officialOnly: form.officialOnly, requestShared: form.requestShared, groupCarEligible: form.groupCarEligible };
       if (record) body.version = record.version;
       const data = await api(`/transport/requests${record ? `/${record.id}` : ""}`, body, record ? "PUT" : "POST");
@@ -151,13 +157,13 @@ function RequestForm({ user, approvers, departments, record, onClose, onSaved })
           <div className="select-field"><label htmlFor="trip-service">Service</label><select id="trip-service" name="service" value={form.service} onChange={change}><option value="RIDE">PickMe Ride (passengers)</option><option value="FLASH">PickMe Flash (items/samples)</option></select></div>
           <div className="select-field"><label htmlFor="trip-approver">Authorized approver</label><select id="trip-approver" name="approverId" value={form.approverId} onChange={change} required><option value="">Select approver</option>{approvers.map((person) => <option key={person.id} value={person.id}>{person.fullName}</option>)}</select></div>
         </div>
-        {approvers.length === 0 && <p className="error">No active authorized approvers. Ask your administrator to assign a Manager or Admin account.</p>}
+        {approvers.length === 0 && <p className="error">No active authorized approvers. Ask your administrator to grant Approval Management access to an account.</p>}
         <label>Approver designation<input name="approverDesignation" value={form.approverDesignation} onChange={change} required minLength={2} maxLength={100} /></label>
         <label>Pickup date and time<input type="datetime-local" name="pickupAt" value={form.pickupAt} min={localDate(Date.now() + 30 * 60000)} onChange={change} required /></label>
         <div className="field-row"><label>Pickup location<input name="pickup" value={form.pickup} onChange={change} required minLength={2} maxLength={500} /></label><label>Destination<input name="destination" value={form.destination} onChange={change} required minLength={2} maxLength={500} /></label></div>
         <label>Stopover (optional)<input name="stopover" value={form.stopover} onChange={change} maxLength={500} /></label>
         {form.service === "FLASH" && <><div className="select-field"><label htmlFor="delivery-route">Delivery route</label><select id="delivery-route" name="deliveryRoute" value={form.deliveryRoute} onChange={change}><option value="OTHER">Other official delivery</option><option value="BETWEEN_FACTORIES">Between factories</option><option value="CUSTOMER_DELIVERY">Customer delivery</option></select></div><div className="field-row"><label>Receiver name<input name="receiverName" value={form.receiverName} onChange={change} required minLength={2} maxLength={100} /></label><label>Receiver contact<input type="tel" name="receiverContact" value={form.receiverContact} onChange={change} required maxLength={30} /></label></div><label>Item or sample details<textarea name="itemDetails" value={form.itemDetails} onChange={change} required minLength={2} maxLength={500} /></label></>}
-        {form.service === "RIDE" && <><label>Number of passengers<input type="number" name="passengerCount" value={form.passengerCount} onChange={change} required min="1" max="10" /><small>Include yourself. This must match the passenger names below.</small></label><label>Additional passengers (optional)<textarea name="otherPassengers" value={form.otherPassengers} onChange={change} placeholder="One per line: Full name | Designation" /><small>Your name/designation is included automatically. Listed passengers: {passengers.length}.</small></label></>}
+        {form.service === "RIDE" && <><label>Number of passengers<input type="number" name="passengerCount" aria-label="Number of passengers" value={passengers.length} readOnly aria-describedby="passenger-count-help" /><small id="passenger-count-help">Calculated automatically from the passenger list, including you. Add other passengers below.</small></label><label>Additional passengers (optional)<textarea name="otherPassengers" aria-label="Additional passengers (optional)" aria-describedby="passenger-list-help" value={form.otherPassengers} onChange={change} placeholder="One per line: Full name | Designation" /><small id="passenger-list-help">Your name/designation is included automatically. Listed passengers: {passengers.length}.</small></label></>}
         <div className="select-field"><label htmlFor="trip-vehicle">Vehicle</label><select id="trip-vehicle" name="vehicle" value={form.vehicle} onChange={change}><option value="MOTORBIKE">Motorbike</option><option value="THREE_WHEELER">Three-wheeler</option><option value="CAR">Car</option></select></div>
         <p className="muted">Inter-factory/customer deliveries: motorbike. Otherwise executives/below: three-wheeler; managers: car or three-wheeler. Three or more passengers may use a car with approval.</p>
         {form.service === "RIDE" && form.vehicle === "CAR" && !["MANAGER", "ADMIN"].includes(user.role) && <label className="check-label"><input type="checkbox" name="groupCarEligible" checked={form.groupCarEligible} onChange={change} required />All {passengers.length} passengers are employees in the Executive category or below; at least three are travelling together. This car request requires approval.</label>}
@@ -220,13 +226,14 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
     if (section === "Booking Management" || tab === "bookings") return ["APPROVED", "BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"].includes(record.status);
     return true;
   });
+  if (["Reports", "Request History"].includes(section)) return <section className="transport-form page-enter" aria-label={section}><h2>{section}</h2>{error && <div className="error" role="alert">{error}</div>}{loading ? <p role="status">Loading requests...</p> : section === "Reports" ? <><p className="muted">Summary of requests your account is permitted to view.</p><div className="staff-overview">{[["Total requests", records.length], ["Awaiting approval", records.filter((record) => record.status === "PENDING_APPROVAL").length], ["Active trips", records.filter((record) => ["APPROVED", "BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"].includes(record.status)).length], ["Completed", records.filter((record) => record.status === "COMPLETED").length]].map(([title, count]) => <article className="staff-stat" key={title}><div><span>{title}</span><strong>{count}</strong></div></article>)}</div></> : <><p className="muted">Activity on requests your account is permitted to view.</p>{records.length ? records.map((record) => <article className="request-card" key={record.id}><h3>{record.pickup} to {record.destination}</h3><p>{record.requesterDetails.fullName}</p><ol className="staff-history">{record.history.map((item, index) => <li key={index}><strong>{label(item.action)}</strong> &middot; {item.actorName} &middot; {displayDate(item.at)}<p>{item.note}</p></li>)}</ol></article>) : <p>No request activity yet.</p>}</>}</section>;
   return <section aria-label="Transport workflow">
-    {!admin && <div className="transport-toolbar"><div className="management-sections"><button aria-pressed={tab === "all"} onClick={() => setTab("all")}>{permissions.approve || permissions.book ? "Requests" : "My requests"}</button>{permissions.approve && <button aria-pressed={tab === "approvals"} onClick={() => setTab("approvals")}>Approvals</button>}{permissions.book && <button aria-pressed={tab === "bookings"} onClick={() => setTab("bookings")}>Bookings</button>}</div><div className="staff-new-request"><button className="primary" disabled={!!requestBlockedReason} aria-describedby={requestBlockedReason ? "request-setup-help" : undefined} onClick={() => { setForm({}); setAction(null); }}>New request</button>{requestBlockedReason && <p id="request-setup-help">{requestBlockedReason}</p>}</div></div>}
+    {!admin && !["Reports", "Request History"].includes(section) && (permissions.request || permissions.approve || permissions.book) && <div className="transport-toolbar"><div className="management-sections"><button aria-pressed={tab === "all"} onClick={() => setTab("all")}>{permissions.approve || permissions.book ? "Requests" : "My requests"}</button>{permissions.approve && <button aria-pressed={tab === "approvals"} onClick={() => setTab("approvals")}>Approvals</button>}{permissions.book && <button aria-pressed={tab === "bookings"} onClick={() => setTab("bookings")}>Bookings</button>}</div>{permissions.request && <div className="staff-new-request"><button className="primary" disabled={!!requestBlockedReason} aria-describedby={requestBlockedReason ? "request-setup-help" : undefined} onClick={() => { setForm({}); setAction(null); }}>New request</button>{requestBlockedReason && <p id="request-setup-help">{requestBlockedReason}</p>}</div>}</div>}
     {admin && <p className="info">Monitoring view. Employees submit their own requests at <Link to="/login">Staff sign in</Link>. Approvers and the Administrative Assistant perform actions from their own accounts.</p>}
     {error && <div className="error" role="alert">{error}</div>}<p className="department-status" role="status">{notice}</p>
     {form && <RequestForm key={form.id || "new"} record={form.id ? form : null} user={user} approvers={approvers} departments={departments} onClose={() => setForm(null)} onSaved={saved} />}
     {loading ? <p role="status">Loading requests…</p> : !shown.length ? <div className="empty-state staff-request-empty"><span className="staff-empty-icon"><WorkspaceIcon type="route" size={28} /></span><h2>No requests yet</h2><p className="muted">Once a request is submitted, its approval and trip updates will appear here.</p></div> : <div className="request-list">{shown.map((record) => {
-      const own = !admin && String(record.requester) === user.id;
+      const own = !admin && String(record.requester) === user.id && permissions.request;
       const assigned = !admin && String(record.approver) === user.id && permissions.approve;
       const choices = [];
       if (assigned && record.status === "PENDING_APPROVAL") choices.push("APPROVE", "REJECT", "RETURN");

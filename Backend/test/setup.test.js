@@ -388,6 +388,55 @@ test("SOP workflow collects request details without transport profiles and enfor
   await owner.get(base).expect(401);
 });
 
+test("Super Admin sidebar grants persist, control staff actions, and revoke access in an existing session", async () => {
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const base = "/api/super-admin/users";
+  const team = await Department.create({ name: "Transport", nameKey: "transport" });
+  const account = (username, sidebarAccess) => ({ fullName: username, username, contact: "0771234567", password: "Staff123", role: "EMPLOYEE", status: "ACTIVE", departmentId: null, sidebarAccess });
+  const ownerData = account("access.owner", ["DASHBOARD", "REQUESTS", "REPORTS"]);
+  const reviewerData = account("access.approver", ["DASHBOARD"]);
+  const bookerData = account("access.booker", ["DASHBOARD"]);
+  const create = async (data) => (await request(app).post(base).set("Cookie", cookie).send(data).expect(201)).body.user;
+  const ownerUser = await create(ownerData), reviewerUser = await create(reviewerData), bookerUser = await create(bookerData);
+  assert.deepEqual(ownerUser.sidebarAccess, ownerData.sidebarAccess);
+  for (const sidebarAccess of [["SUPER_ADMIN"], ["REQUESTS", "REQUESTS"], "REQUESTS", null]) {
+    await request(app).post(base).set("Cookie", cookie).send({ ...ownerData, username: "invalid.access", sidebarAccess }).expect(400);
+  }
+  const grant = async (user, data, sidebarAccess) => {
+    const result = await request(app).put(`${base}/${user.id}`).set("Cookie", cookie).send({ ...data, sidebarAccess }).expect(200);
+    assert.deepEqual(result.body.user.sidebarAccess, sidebarAccess);
+  };
+  async function login(user) { const client = request.agent(app); await client.post("/api/transport/auth/login").send({ username: user.username, password: "Staff123" }).expect(200); return client; }
+  const owner = await login(ownerUser), reviewer = await login(reviewerUser), booker = await login(bookerUser);
+  await owner.post("/api/transport/acknowledge").send({ acknowledged: true }).expect(200);
+  await owner.put(`${base}/${ownerUser.id}`).send({ ...ownerData, sidebarAccess: ["BOOKINGS"] }).expect(401);
+  const body = { requesterDesignation: "Executive", requesterContact: "0771234567", departmentId: team.id, workLocation: "Office", approverDesignation: "Team Lead", passengerCount: 1, service: "RIDE", approverId: reviewerUser.id, pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Official review", justification: "Production review", passengers: [{ name: ownerUser.fullName, designation: "Executive" }], officialOnly: true, requestShared: true };
+  await owner.post("/api/transport/requests").send(body).expect(400);
+  await grant(reviewerUser, reviewerData, ["DASHBOARD", "APPROVALS"]);
+  assert.equal((await reviewer.get("/api/transport/me")).body.user.permissions.approve, true);
+  const approvers = (await owner.get("/api/transport/approvers").expect(200)).body.approvers;
+  assert.ok(approvers.some((person) => person.id === reviewerUser.id));
+  const record = (await owner.post("/api/transport/requests").send(body).expect(201)).body.request;
+  const action = `/api/transport/requests/${record.id}/action`;
+  await grant(reviewerUser, reviewerData, ["DASHBOARD"]);
+  await reviewer.post(action).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(403);
+  await grant(reviewerUser, reviewerData, ["APPROVALS"]);
+  await reviewer.post(action).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(200);
+  await booker.post(action).send({ action: "BOOK", version: 1, externalActionConfirmed: true, bookingReference: "ACCESS-001" }).expect(404);
+  await grant(bookerUser, bookerData, ["BOOKINGS"]);
+  await booker.post(action).send({ action: "BOOK", version: 1, externalActionConfirmed: true, bookingReference: "ACCESS-001" }).expect(200);
+  await grant(bookerUser, bookerData, []);
+  await booker.get("/api/transport/requests").expect(403);
+  await grant(ownerUser, ownerData, ["REPORTS", "HISTORY"]);
+  await owner.get("/api/transport/requests").expect(200);
+  await owner.post("/api/transport/requests").send(body).expect(403);
+  await owner.post(action).send({ action: "CANCEL", version: 2, note: "Cancel" }).expect(403);
+  const profile = (await owner.get("/api/transport/me").expect(200)).body.user;
+  assert.deepEqual(profile.sidebarAccess, ["REPORTS", "HISTORY"]);
+  assert.equal(profile.permissions.request, false);
+});
+
 test("SOP changes, returns and cancellations require responsible staff and reject stale versions", async () => {
   const department = await Department.create({ name: "Accounts", nameKey: "accounts" });
   const passwordHash = await bcrypt.hash("Staff123", 12);

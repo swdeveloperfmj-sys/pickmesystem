@@ -92,7 +92,7 @@ test(
             assert.equal(contentAfter.y, contentBefore.y, "Opening navigation must not move content");
             await page.getByRole("button", { name: "Close navigation menu" }).waitFor();
             await page.getByRole("button", { name: "System Settings", exact: true }).click();
-            await page.getByRole("heading", { name: "System Settings", exact: true, level: 1 }).waitFor();
+            await page.locator(".dashboard-top > span").filter({ hasText: "System Settings" }).waitFor();
             assert.equal(await menu.getAttribute("aria-expanded"), "false");
             assert.equal(
               await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
@@ -196,7 +196,7 @@ test(
         .click();
       await page.waitForURL("**/super-admin/dashboard");
       await page
-        .getByRole("heading", { name: "Overview", exact: true })
+        .locator(".dashboard-top > span").filter({ hasText: "Dashboard" })
         .waitFor();
       assert.equal(await User.countDocuments({ role: "SUPER_ADMIN" }), 1);
       const collapse = page.getByRole("button", { name: "Collapse sidebar", exact: true });
@@ -208,7 +208,7 @@ test(
       assert.equal((await page.locator(".sidebar").boundingBox()).width, 252);
       await collapse.click();
       await page.getByRole("button", { name: "Department Management", exact: true }).click();
-      await page.getByRole("heading", { name: "Department Management", exact: true, level: 1 }).waitFor();
+      await page.locator(".dashboard-top > span").filter({ hasText: "Department Management" }).waitFor();
       assert.equal((await page.locator(".sidebar").boundingBox()).width, 252);
       await page.getByRole("button", { name: "Dashboard", exact: true }).click();
       await collapse.click();
@@ -273,7 +273,7 @@ test(
       await page.getByRole("button", { name: "Create department", exact: true }).click();
       await page.getByText("Department created.", { exact: true }).waitFor();
       await page.reload();
-      await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+      await page.locator(".dashboard-top > span").filter({ hasText: "Dashboard" }).waitFor();
       assert.equal(await page.locator(".metric").filter({ hasText: "Total Departments" }).locator("strong").innerText(), "1");
       await selectSection("Department Management");
       const department = page.getByRole("article", { name: "Human Resources", exact: true });
@@ -314,10 +314,11 @@ test(
       await page.getByLabel("Role", { exact: true }).selectOption({ label: "Transport Coordinator" });
       assert.equal(await page.getByRole("group", { name: "Transport profile (SOP)", exact: true }).count(), 0);
       await page.getByLabel("Department", { exact: true }).selectOption({ label: "People Operations" });
+      await page.getByRole("group", { name: "Sidebar access", exact: true }).getByRole("checkbox", { name: /^Reports/ }).check();
       await page.getByRole("button", { name: "Create user", exact: true }).click();
       await page.getByText("User created.", { exact: true }).waitFor();
       await page.reload();
-      await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+      await page.locator(".dashboard-top > span").filter({ hasText: "Dashboard" }).waitFor();
       assert.equal(await page.locator(".metric").filter({ hasText: "Total Employees" }).locator("strong").innerText(), "0");
       await selectSection("User Management");
       const person = page.getByRole("row", { name: "Jamie Silva", exact: true });
@@ -325,6 +326,7 @@ test(
       await person.getByText(/People Operations/).waitFor();
       await person.getByRole("button", { name: "Edit", exact: true }).click();
       assert.equal(await page.getByRole("group", { name: "Transport profile (SOP)", exact: true }).count(), 0);
+      assert.equal(await page.getByRole("group", { name: "Sidebar access", exact: true }).getByRole("checkbox", { name: /^Reports/ }).isChecked(), true);
       assert.equal(await page.getByLabel("Contact number", { exact: true }).inputValue(), "0771234567");
       await page.getByLabel("Contact number", { exact: true }).fill("0777654321");
       await page.getByLabel("Role", { exact: true }).selectOption("MANAGER");
@@ -340,7 +342,9 @@ test(
       await person.getByText(/0777654321/).waitFor();
       const directoryHash = await bcrypt.hash("Sample123", 12);
       await User.insertMany(Array.from({ length: 12 }, (_, index) => ({ fullName: `Team Member ${String(index + 1).padStart(2, "0")}`, username: `directory.sample${index + 1}`, contact: `0771234${String(index).padStart(3, "0")}`, role: index % 3 === 0 ? "ADMIN" : index % 3 === 1 ? "EMPLOYEE" : "OPERATOR", passwordHash: directoryHash })));
-      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      await page.reload();
+      await page.locator(".dashboard-top > span").filter({ hasText: "Dashboard" }).waitFor();
+      await selectSection("User Management");
       await page.getByText("Page 1 of 2", { exact: true }).waitFor();
       assert.equal(await page.locator(".user-table tbody tr").count(), 10);
       await page.getByRole("button", { name: "Next", exact: true }).click();
@@ -408,7 +412,7 @@ test(
       await page.waitForURL("**/super-admin/login");
       await page.goto(`${config.APP_ORIGIN}/super-admin/dashboard`);
       await page
-        .getByRole("heading", { name: "Overview", exact: true })
+        .locator(".dashboard-top > span").filter({ hasText: "Dashboard" })
         .waitFor();
       await logout();
       await page.waitForURL("**/super-admin/login");
@@ -417,7 +421,7 @@ test(
       const transportDept = await Department.create({ name: "Transport Test", nameKey: "transport test" });
       const passwordHash = await bcrypt.hash("Staff123", 12);
       const common = { passwordHash, department: transportDept._id, contact: "0771234567" };
-      const staffRequester = await User.create({ ...common, fullName: "Request Employee", username: "request.employee", role: "EMPLOYEE" });
+      const staffRequester = await User.create({ ...common, fullName: "Request Employee", username: "request.employee", role: "EMPLOYEE", sidebarAccess: ["DASHBOARD", "REQUESTS", "REPORTS", "HISTORY"] });
       const staffApprover = await User.create({ ...common, fullName: "Sales Approver", username: "sales.approver", role: "MANAGER" });
       await User.create({ ...common, fullName: "Booking Assistant", username: "booking.assistant", role: "OPERATOR" });
       async function staffLogin(username, password = "Staff123") {
@@ -434,11 +438,38 @@ test(
         await page.waitForURL("**/login");
       }
       await staffLogin(staffRequester.username);
+      await page.setViewportSize({ width: 1440, height: 900 });
+      const staffNav = page.getByRole("navigation", { name: "Staff workspace", exact: true });
+      assert.equal(await staffNav.getByRole("button", { name: "Transport Requests", exact: true }).count(), 1);
+      assert.equal(await staffNav.getByRole("button", { name: "Approval Management", exact: true }).count(), 0);
+      assert.equal(await staffNav.getByRole("button", { name: "Booking Management", exact: true }).count(), 0);
+      await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+      assert.equal(await page.locator(".sidebar-toggle").isVisible(), false);
+      await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+      await staffNav.getByRole("button", { name: "Reports", exact: true }).click();
+      await page.getByRole("heading", { name: "Reports", exact: true }).waitFor();
+      await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+      await staffNav.getByRole("button", { name: "Request History", exact: true }).click();
+      assert.equal(await page.locator(".staff-dashboard").evaluate((element) => element.classList.contains("sidebar-collapsed")), false);
+      await page.getByRole("heading", { name: "Request History", exact: true }).waitFor();
+      await staffNav.getByRole("button", { name: "Dashboard", exact: true }).click();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByRole("button", { name: "Navigation menu", exact: true }).click();
+      await staffNav.getByRole("button", { name: "Transport Requests", exact: true }).click();
+      assert.equal(await page.getByRole("button", { name: "Navigation menu", exact: true }).getAttribute("aria-expanded"), "false");
+      await page.getByRole("button", { name: "Navigation menu", exact: true }).click();
+      await staffNav.getByRole("button", { name: "Dashboard", exact: true }).click();
       assert.equal(await page.getByRole("button", { name: "New request", exact: true }).isDisabled(), true);
       await page.getByRole("button", { name: /Read guidelines/ }).click();
       await page.getByRole("button", { name: "I have read and understood the SOP", exact: true }).click();
       await page.getByRole("button", { name: "New request", exact: true }).click();
       await page.getByLabel("Requester designation", { exact: true }).fill("Production Executive");
+      assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "1");
+      assert.equal(await page.getByLabel("Number of passengers", { exact: true }).getAttribute("readonly"), "");
+      await page.getByLabel("Additional passengers (optional)", { exact: true }).fill("Person Two | Executive\n\nPerson Three | Engineer");
+      assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "3");
+      await page.getByLabel("Additional passengers (optional)", { exact: true }).fill("Person Two | Executive\n   ");
+      assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "2");
       await page.getByLabel("Department / work location", { exact: true }).fill("Factory 1");
       await page.getByLabel("Approver designation", { exact: true }).fill("Sales Manager");
       await page.getByLabel("Authorized approver", { exact: true }).selectOption(staffApprover.id);
@@ -454,6 +485,9 @@ test(
       await page.getByRole("checkbox", { name: /I have shared these request details/ }).check();
       await page.getByRole("button", { name: "Submit for approval", exact: true }).click();
       await page.getByText("Pending approval", { exact: true }).waitFor();
+      const savedTrip = await TransportRequest.findOne({ requester: staffRequester._id });
+      assert.equal(savedTrip.passengerCount, 2);
+      assert.equal(savedTrip.passengers.length, 2);
       assert.equal(await page.locator(".staff-stat").filter({ hasText: "Awaiting approval" }).locator("strong").innerText(), "1");
       await checkResponsiveLayout();
       await page.getByRole("switch", { name: "Dark mode" }).click();
@@ -512,6 +546,11 @@ test(
       await page.screenshot({ path: `${artifactDir}/request-form-flash-mobile.png`, fullPage: true, animations: "disabled" });
       await page.keyboard.press("Escape");
       await page.getByRole("dialog", { name: "Transport guidelines", exact: true }).waitFor({ state: "hidden" });
+      await User.updateOne({ username: "directory.sample1" }, { $set: { sidebarAccess: [] } });
+      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      await page.getByRole("heading", { name: "No workspace access assigned", exact: true }).waitFor();
+      assert.equal(await page.getByRole("navigation", { name: "Staff workspace", exact: true }).getByRole("button").count(), 0);
+      assert.equal(await page.getByRole("button", { name: "New request", exact: true }).count(), 0);
       assert.deepEqual(pageErrors, []);
     } catch (error) {
       if (page && !page.isClosed()) {

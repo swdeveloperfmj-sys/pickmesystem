@@ -133,7 +133,7 @@ Users can be assigned to departments through User Management. Departments with a
 
 Super Administrators can create, edit, and delete Admin, Employee, Manager, and Operator accounts through User Management. Each managed user has a name, unique username, contact number, role, active/inactive status, and optional department. Email is not required by User Management. Search supports names, contact numbers, roles, and departments. The Super Administrator account is excluded and cannot be changed or deleted through these APIs.
 
-User Management passwords require at least 6 characters and at most 72 UTF-8 bytes. Initial Super Administrator setup requires at least 12 characters. Passwords are hashed using bcrypt and never returned. An empty password field while editing preserves the current password. Created accounts are not marked email verified. Staff sign-in is available at /login for the SOP transport workflow. Transport request details are collected on each request; account roles control approval and booking.
+User Management passwords require at least 6 characters and at most 72 UTF-8 bytes. Initial Super Administrator setup requires at least 12 characters. Passwords are hashed using bcrypt and never returned. An empty password field while editing preserves the current password. Created accounts are not marked email verified. Staff sign-in is available at /login for the SOP transport workflow. Transport request details are collected on each request; Super Admin sidebar grants control approval and booking, with role defaults for legacy accounts.
 
 | Method | Endpoint | Action |
 | --- | --- | --- |
@@ -150,7 +150,7 @@ User Management has separate Users and Roles sections. In Roles, enter a unique 
 
 GET /api/super-admin/roles lists built-in and custom roles. POST /api/super-admin/roles accepts name (2-100 characters) and optional description (up to 500 characters). Both require the verified Super Administrator session. Duplicate names and built-in/reserved names are rejected. Custom role values use CUSTOM_ followed by the role document ID; user writes reject nonexistent roles.
 
-Custom roles identify responsibilities; they do not grant Super Administrator privileges. Manager/Admin roles approve assigned requests; Operators record bookings. This section supports creating and listing roles.
+Custom roles identify responsibilities; they do not grant Super Administrator privileges. Super Admin grants Approval Management for assigned decisions and Booking Management for external booking actions. This section supports creating and listing roles.
 
 User Management requires a contact number with 7 to 15 digits; an optional leading + and spaces, parentheses, dots, and hyphens are accepted. Existing user emails are retained. Initial Super Administrator setup and email verification still require an email address. On startup the old unique email index is replaced with a partial unique index, allowing multiple managed users without email while retaining uniqueness for existing email values.
 
@@ -158,7 +158,7 @@ User Management requires a contact number with 7 to 15 digits; an optional leadi
 
 Based on the four-page PickMe SOP Simplified document supplied by the user (labelled For management approval). See docs/pickme-sop-mapping.md for the source requirements and integration boundaries.
 
-1. Super Admin: create staff in User Management with basic details, contact and optional department assignment. No Transport profile (SOP) section is required. Assign Manager/Admin for approvers and Operator for Administrative Assistant booking responsibilities.
+1. Super Admin: create staff in User Management with basic details, contact and optional department assignment. No Transport profile (SOP) section is required. Choose Sidebar access for requester, approval and booking responsibilities.
 2. Staff: open /login and use the assigned username/password. Read and acknowledge the SOP. HR must still explain it to recruits and retain the acknowledgement in their personal file; the stored acknowledgement date supplements that process.
 3. Staff requester: create their own Ride/Flash request, enter designation, contact, department/location, approver designation and all Annexure C journey/service details, prepare/copy the WhatsApp text and manually share it before confirming submission. The server records the attestation time. The pickup must be at least 30 minutes away.
 4. Assigned authorized approver: inspect need, justification and vehicle eligibility, share approval in WhatsApp and confirm approval in the system at least 30 minutes before pickup. Requests may be rejected or returned with a reason.
@@ -167,10 +167,17 @@ Based on the four-page PickMe SOP Simplified document supplied by the user (labe
 
 Super Admin can monitor Transport Requests, Approval Management and Booking Management. Workflow actions require the responsible staff account. Dashboards show real transport counts. Each request retains requester/approver snapshots, a dated actor/action history and prior booking references in the history. Concurrent/stale actions are rejected using a version counter.
 
-Staff authentication uses a separate HttpOnly cookie limited to /api/transport, with role/status checked against the current database record. Existing Super Admin authentication is preserved. All active staff can submit their own requests after acknowledgement. Trusted Manager/Admin account roles approve assigned requests; Operators record bookings. Typed designations and custom role names do not grant elevated permissions. This follows the user's later instruction to remove account-level transport profiles.
+Staff authentication uses a separate HttpOnly cookie limited to /api/transport, with role/status checked against the current database record. Existing Super Admin authentication is preserved. Staff with Transport Requests access can submit their own requests after acknowledgement. Super Admin grants Approval Management and Booking Management access explicitly. Legacy accounts use Manager/Admin approval and Operator booking defaults. Typed designations and custom role names do not grant elevated permissions. This follows the user's later instruction to remove account-level transport profiles.
 
 Main endpoints: POST /api/transport/auth/login, POST /api/transport/auth/logout, GET /api/transport/me, POST /api/transport/acknowledge, GET /api/transport/approvers, GET/POST /api/transport/requests, PUT /api/transport/requests/:id, POST /api/transport/requests/:id/action, GET /api/transport/requests/:id/message. Super Admin monitoring uses /api/super-admin/transport. All write routes retain the origin checks and API rate limits.
 
 WhatsApp delivery, actual PickMe reservations, driver GPS tracking and external cancellation/amendment are manual operations; no service integration credentials were provided. Reports and general Audit Logs sidebar modules are still separate future modules; transport history is available on each request.
 
 User Management now uses a full-width directory table with one row per user, search, role/department/status filters, and ten-row pagination. Add user opens the creation dialog; row actions open editing or deletion confirmation. Transport profile fields are removed from both create and edit dialogs. On small screens, the table scrolls horizontally within its own region.
+
+
+## Staff sidebar access
+
+Super Admin chooses Sidebar access checkboxes in User Management when creating or editing a user. Options are Dashboard, Transport Requests, Approval Management, Booking Management, Reports and Request History. Explicit selections control navigation and backend actions independently of role labels. Approval access allows decisions on assigned requests; booking access allows viewing all transport requests and recording external PickMe booking actions. Reports and history use the same record visibility as the user's account. Empty access allows sign-in with an access-not-assigned notice.
+
+Legacy accounts without stored selections retain role defaults: Dashboard/Requests for staff, Approval Management for Manager/Admin, and Booking Management for Operator. Existing selections are preserved when roles change; Use role defaults resets the selection. User/role/department administration remains in the Super Administrator portal. Permission changes apply to the next API request; Refresh or returning focus to the staff portal updates its sidebar. Desktop collapse/expand and the mobile navigation overlay are supported.
