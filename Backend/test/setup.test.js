@@ -42,7 +42,8 @@ const mailer = {
 before(
   async () => {
     mongo = await MongoMemoryReplSet.create({
-      replSet: { count: 1, storageEngine: "wiredTiger" },
+      // Small, disposable fixtures do not need MongoDB's default 500 MB reserve.
+      replSet: { count: 1, storageEngine: "wiredTiger", args: ["--setParameter", "indexBuildMinAvailableDiskSpaceMB=50"] },
       binary: { version: "8.0.17" },
     });
     await mongoose.connect(mongo.getUri());
@@ -194,35 +195,38 @@ test("user CRUD validates roles, credentials and department links while protecti
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
   const first = await Department.create({ name: "Engineering", nameKey: "engineering" });
   const second = await Department.create({ name: "Finance", nameKey: "finance" });
-  const data = { fullName: "Taylor Silva", username: "taylor.silva", email: "taylor@example.com", password: "UserPassword!123", role: "EMPLOYEE", status: "ACTIVE", departmentId: first.id };
+  const data = { fullName: "Taylor Silva", username: "taylor.silva", contact: "0771234567", password: "User12", role: "EMPLOYEE", status: "ACTIVE", departmentId: first.id };
   const created = await request(app).post(base).set("Cookie", cookie).send(data).expect(201);
   const userId = created.body.user.id;
   assert.equal(created.body.user.department.name, "Engineering");
   assert.equal(created.body.user.departmentId, first.id);
   assert.equal(created.body.user.passwordHash, undefined);
   assert.equal(created.body.user.isEmailVerified, false);
+  assert.equal(created.body.user.contact, "0771234567");
+  assert.equal(created.body.user.email, undefined);
   assert.equal(await bcrypt.compare(data.password, (await User.findById(userId).select("+passwordHash")).passwordHash), true);
   const list = await request(app).get(base).set("Cookie", cookie).expect(200);
   assert.equal(list.body.users.length, 1);
   assert.equal(list.body.users[0].passwordHash, undefined);
   const { password, ...update } = data;
-  for (const change of [{ role: "SUPER_ADMIN" }, { departmentId: absent }, { departmentId: "invalid" }, { isEmailVerified: true }, { password: "short" }, { password: "🔒".repeat(20) }, { status: "UNKNOWN" }]) {
+  for (const change of [{ role: "SUPER_ADMIN" }, { departmentId: absent }, { departmentId: "invalid" }, { isEmailVerified: true }, { contact: "abc1234" }, { contact: "123" }, { contact: "" }, { contact: "1".repeat(16) }, { password: "short" }, { password: "🔒".repeat(20) }, { status: "UNKNOWN" }]) {
     await request(app).post(base).set("Cookie", cookie).send({ ...data, ...change }).expect(400);
   }
-  await request(app).post(base).set("Cookie", cookie).send({ ...data, username: "unique.user" }).expect(409);
-  await request(app).post(base).set("Cookie", cookie).send({ ...data, email: "another@example.com" }).expect(409);
+  await request(app).post(base).set("Cookie", cookie).send({ ...data, username: "unique.user", departmentId: null }).expect(201);
+  await request(app).post(base).set("Cookie", cookie).send({ ...data, contact: "0777654321" }).expect(409);
   await request(app).put(`${base}/${adminId}`).set("Cookie", cookie).send(update).expect(404);
   await request(app).delete(`${base}/${adminId}`).set("Cookie", cookie).expect(404);
   await request(app).put(`${base}/${userId}`).set("Cookie", cookie).send({ ...update, role: "SUPER_ADMIN" }).expect(400);
   await request(app).delete(`/api/super-admin/departments/${first.id}`).set("Cookie", cookie).expect(409);
   assert.ok(await Department.findById(first.id));
   const edited = await request(app).put(`${base}/${userId}`).set("Cookie", cookie)
-    .send({ ...update, fullName: "Taylor Perera", departmentId: second.id, role: "MANAGER", status: "INACTIVE" }).expect(200);
+    .send({ ...update, fullName: "Taylor Perera", contact: "0779998888", departmentId: second.id, role: "MANAGER", status: "INACTIVE" }).expect(200);
   assert.equal(edited.body.user.department.name, "Finance");
   assert.equal(edited.body.user.isActive, false);
+  assert.equal(edited.body.user.contact, "0779998888");
   assert.equal(await bcrypt.compare(password, (await User.findById(userId).select("+passwordHash")).passwordHash), true);
   await request(app).delete(`/api/super-admin/departments/${first.id}`).set("Cookie", cookie).expect(204);
-  const replacement = "ReplacementPassword!123";
+  const replacement = "New123";
   await request(app).put(`${base}/${userId}`).set("Cookie", cookie).send({ ...update, departmentId: null, password: replacement }).expect(200);
   assert.equal(await bcrypt.compare(replacement, (await User.findById(userId).select("+passwordHash")).passwordHash), true);
   assert.equal((await User.findById(userId)).department, null);
@@ -237,11 +241,24 @@ test("user CRUD validates roles, credentials and department links while protecti
   assert.equal(await User.countDocuments({ role: "SUPER_ADMIN" }), 1);
 });
 
+test("legacy email index migration allows multiple users without emails and retains email uniqueness", async () => {
+  await User.collection.createIndex({ email: 1 }, { name: "email_1", unique: true });
+  await initializeDatabase();
+  const indexes = await User.collection.indexes();
+  assert.ok(indexes.some((index) => index.name === "user_email_unique" && index.unique));
+  assert.equal(indexes.some((index) => index.name === "email_1"), false);
+  const fields = { fullName: "Contact User", passwordHash: "test-hash", role: "EMPLOYEE", contact: "0771234567" };
+  await User.create({ ...fields, username: "contact.one" });
+  await User.create({ ...fields, username: "contact.two" });
+  await User.create({ ...fields, username: "contact.three", email: "unique@example.com" });
+  await assert.rejects(User.create({ ...fields, username: "contact.four", email: "unique@example.com" }), (error) => error.code === 11000);
+});
+
 test("department assignment and deletion cannot leave a dangling user reference", async () => {
   const verified = await complete();
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
   const department = await Department.create({ name: "Concurrent", nameKey: "concurrent" });
-  const data = { fullName: "Race Test", username: "race.test", email: "race@example.com", password: "RacePassword!123", role: "EMPLOYEE", status: "ACTIVE", departmentId: department.id };
+  const data = { fullName: "Race Test", username: "race.test", contact: "+94 77 222 3333", password: "RacePassword!123", role: "EMPLOYEE", status: "ACTIVE", departmentId: department.id };
   const [assigned, removed] = await Promise.all([
     request(app).post("/api/super-admin/users").set("Cookie", cookie).send(data),
     request(app).delete(`/api/super-admin/departments/${department.id}`).set("Cookie", cookie),
@@ -273,7 +290,7 @@ test("custom roles are unique, protected, persistent and assignable without Supe
   await request(app).post(base).set("Cookie", cookie).send({ name: "transport coordinator" }).expect(409);
   const list = await request(app).get(base).set("Cookie", cookie).expect(200);
   assert.equal(list.body.roles.length, 5);
-  const userData = { fullName: "Sam Silva", username: "sam.silva", email: "sam@example.com", password: "RolePassword!123", role, status: "ACTIVE", departmentId: null };
+  const userData = { fullName: "Sam Silva", username: "sam.silva", contact: "011 234 5678", password: "RolePassword!123", role, status: "ACTIVE", departmentId: null };
   const person = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send(userData).expect(201);
   assert.equal(person.body.user.role, role);
   const { password, ...update } = userData;

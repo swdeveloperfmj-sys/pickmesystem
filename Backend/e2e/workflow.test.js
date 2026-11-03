@@ -23,7 +23,7 @@ test(
     let sentOtp;
     try {
       mongo = await MongoMemoryReplSet.create({
-        replSet: { count: 1 },
+        replSet: { count: 1, args: ["--setParameter", "indexBuildMinAvailableDiskSpaceMB=50"] },
         binary: { version: "8.0.17" },
       });
       await mongoose.connect(mongo.getUri());
@@ -293,8 +293,9 @@ test(
       await page.getByRole("button", { name: "Users", exact: true }).click();
       await page.getByLabel("Full name", { exact: true }).fill("Jamie Silva");
       await page.getByLabel("Username", { exact: true }).fill("jamie.silva");
-      await page.getByLabel("Email address", { exact: true }).fill("jamie@example.com");
-      await page.getByLabel("Password", { exact: true }).fill("UserPassword!123");
+      assert.equal(await page.getByLabel("Email address", { exact: true }).count(), 0);
+      await page.getByLabel("Contact number", { exact: true }).fill("0771234567");
+      await page.getByLabel("Password", { exact: true }).fill("User12");
       await page.getByLabel("Role", { exact: true }).selectOption({ label: "Transport Coordinator" });
       await page.getByLabel("Department", { exact: true }).selectOption({ label: "People Operations" });
       await page.getByRole("button", { name: "Create user", exact: true }).click();
@@ -307,12 +308,15 @@ test(
       await person.getByText(/Transport Coordinator/).waitFor();
       await person.getByText(/People Operations/).waitFor();
       await person.getByRole("button", { name: "Edit", exact: true }).click();
+      assert.equal(await page.getByLabel("Contact number", { exact: true }).inputValue(), "0771234567");
+      await page.getByLabel("Contact number", { exact: true }).fill("0777654321");
       await page.getByLabel("Role", { exact: true }).selectOption("MANAGER");
       await page.getByLabel("Status", { exact: true }).selectOption("INACTIVE");
       await page.getByLabel("Department", { exact: true }).selectOption({ label: "Finance" });
       await page.getByRole("button", { name: "Save changes", exact: true }).click();
       await page.getByText("User updated.", { exact: true }).waitFor();
       await person.getByText("Manager · Inactive · Finance", { exact: true }).waitFor();
+      await person.getByText(/0777654321/).waitFor();
       await checkResponsiveLayout();
       await page.screenshot({ path: `${artifactDir}/users-dark-desktop.png`, fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });

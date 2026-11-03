@@ -70,13 +70,19 @@ const departmentId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid department ID")
 const managedUserInput = z.object({
   fullName: registration.shape.fullName,
   username: registration.shape.username,
-  email: registration.shape.email,
+  contact: z.string().trim().min(7).max(30)
+    .regex(/^\+?[\d\s().-]+$/, "Enter a valid contact number")
+    .refine((value) => { const digits = value.replace(/\D/g, ""); return digits.length >= 7 && digits.length <= 15; }, "Contact number must contain 7 to 15 digits"),
   role: z.string().regex(/^(ADMIN|EMPLOYEE|MANAGER|OPERATOR|CUSTOM_[a-f\d]{24})$/, "Select a valid role"),
   status: z.enum(["ACTIVE", "INACTIVE"]),
   departmentId: departmentId.nullable(),
 }).strict();
-const createUserInput = managedUserInput.extend({ password: registration.shape.password });
-const updateUserInput = managedUserInput.extend({ password: registration.shape.password.optional() });
+const userPassword = z.string().min(6).refine(
+  (value) => Buffer.byteLength(value, "utf8") <= 72,
+  "Password must fit within 72 UTF-8 bytes",
+);
+const createUserInput = managedUserInput.extend({ password: userPassword });
+const updateUserInput = managedUserInput.extend({ password: userPassword.optional() });
 const builtinRoles = [
   { value: "ADMIN", name: "Admin", description: "Administrator account" },
   { value: "EMPLOYEE", name: "Employee", description: "Employee account" },
@@ -107,6 +113,7 @@ const publicUser = (user) => ({
   fullName: user.fullName,
   username: user.username,
   email: user.email,
+  contact: user.contact || "",
   role: user.role,
   status: user.status,
   isActive: user.isActive,
@@ -485,7 +492,7 @@ export function createApp({ config, mailer, limits = true }) {
         }
       });
     } catch (error) {
-      if (error.code === 11000) throw new ApiError(409, "Username or email is already in use.");
+      if (error.code === 11000) throw new ApiError(409, "Username is already in use.");
       throw error;
     }
     await saved.populate("department", "name");

@@ -4,7 +4,8 @@ const userSchema = new Schema(
   {
     fullName: { type: String, required: true },
     username: { type: String, required: true, unique: true, lowercase: true },
-    email: { type: String, required: true, unique: true, lowercase: true },
+    email: { type: String, required() { return this.role === "SUPER_ADMIN"; }, lowercase: true },
+    contact: { type: String, trim: true, maxlength: 30 },
     passwordHash: { type: String, required: true, select: false },
     department: { type: Schema.Types.ObjectId, ref: "Department", default: null, index: true },
     role: {
@@ -19,6 +20,11 @@ const userSchema = new Schema(
   { timestamps: true },
 );
 // Database constraint, independent of application-level checks.
+userSchema.index({ email: 1 }, {
+  name: "user_email_unique",
+  unique: true,
+  partialFilterExpression: { email: { $type: "string" } },
+});
 userSchema.index(
   { role: 1 },
   { unique: true, partialFilterExpression: { role: "SUPER_ADMIN" } },
@@ -83,6 +89,13 @@ export async function initializeDatabase() {
     Department.init(),
     Role.init(),
   ]);
+  // Replace the original unique index, which permits only one user without email.
+  // The partial unique index above is installed before dropping the old index.
+  const emailIndex = (await User.collection.indexes()).find((index) => index.name === "email_1");
+  if (emailIndex?.unique && emailIndex.key.email === 1 && Object.keys(emailIndex.key).length === 1) {
+    try { await User.collection.dropIndex("email_1"); }
+    catch (error) { if (error.code !== 27) throw error; }
+  }
   if (await User.exists({ role: "SUPER_ADMIN" })) {
     await SetupState.updateOne(
       { _id: "super-admin" },
