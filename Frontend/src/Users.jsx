@@ -3,11 +3,10 @@ import { api } from "./api";
 import Roles from "./Roles";
 import UsersTable from "./UsersTable";
 
-const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "EMPLOYEE", status: "ACTIVE", departmentId: "", designation: "", locationType: "", workLocation: "", employeeCategory: "EXECUTIVE_OR_BELOW" };
+const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "EMPLOYEE", status: "ACTIVE", departmentId: "" };
 
 export default function Users({ refreshKey, onChanged }) {
   const [section, setSection] = useState("users");
-  const [sop, setSop] = useState({ designations: [] });
   const [availableRoles, setAvailableRoles] = useState([]);
   const roles = Object.fromEntries(availableRoles.map((role) => [role.value, role.name]));
   const [users, setUsers] = useState([]);
@@ -27,9 +26,9 @@ export default function Users({ refreshKey, onChanged }) {
     let active = true;
     setLoading(true);
     setError("");
-    Promise.all([api("/super-admin/users"), api("/super-admin/departments"), api("/super-admin/roles"), api("/super-admin/sop")])
-      .then(([people, teams, roleData, policy]) => {
-        if (active) { setUsers(people.users); setDepartments(teams.departments); setAvailableRoles(roleData.roles); setSop(policy); }
+    Promise.all([api("/super-admin/users"), api("/super-admin/departments"), api("/super-admin/roles")])
+      .then(([people, teams, roleData]) => {
+        if (active) { setUsers(people.users); setDepartments(teams.departments); setAvailableRoles(roleData.roles); }
       })
       .catch((err) => { if (active) setError(err.message); })
       .finally(() => { if (active) setLoading(false); });
@@ -69,7 +68,7 @@ export default function Users({ refreshKey, onChanged }) {
   }
   function edit(user) {
     setEditing(user.id);
-    setForm({ fullName: user.fullName, username: user.username, contact: user.contact || "", password: "", role: user.role, status: user.status, departmentId: user.departmentId || "", designation: user.designation || "", locationType: user.locationType || "", workLocation: user.workLocation || "", employeeCategory: user.employeeCategory || "EXECUTIVE_OR_BELOW" });
+    setForm({ fullName: user.fullName, username: user.username, contact: user.contact || "", password: "", role: user.role, status: user.status, departmentId: user.departmentId || "" });
     setDeleting(null); setError(""); setMessage("");
     setDialogError(""); editor.current.showModal();
   }
@@ -121,29 +120,6 @@ export default function Users({ refreshKey, onChanged }) {
               </select>
             </div>
             {!loading && departments.length === 0 && <p className="muted">Create a department in Department Management to assign users to it.</p>}
-            {editing && <fieldset className="sop-profile" disabled={busy || loading}>
-              <legend>Transport profile (SOP)</legend>
-              <p className="muted">Set the actual designation and work location. These determine requesting, approval, and booking authority under the SOP.</p>
-              <div className="select-field"><label htmlFor="user-designation">Designation</label>
-                <select id="user-designation" name="designation" value={form.designation} onChange={change}>
-                  <option value="">Not configured</option>
-                  {sop.designations.map((value) => <option key={value}>{value}</option>)}
-                </select>
-              </div>
-              <div className="select-field"><label htmlFor="user-location-type">Location type</label>
-                <select id="user-location-type" name="locationType" value={form.locationType} onChange={change}>
-                  <option value="">Not configured</option><option value="FACTORY">Factory</option><option value="HEAD_OFFICE">Head Office</option><option value="SHOWROOM">Showroom</option>
-                </select>
-              </div>
-              <label htmlFor="user-work-location">Work location
-                <input id="user-work-location" name="workLocation" value={form.workLocation} onChange={change} maxLength={150} placeholder="e.g. Factory 1" />
-              </label>
-              <div className="select-field"><label htmlFor="user-category">Employee category</label>
-                <select id="user-category" name="employeeCategory" value={form.employeeCategory} onChange={change}>
-                  <option value="EXECUTIVE_OR_BELOW">Executive or below</option><option value="MANAGER">Manager</option>
-                </select>
-              </div>
-            </fieldset>}
             <div className="user-dialog-actions">
               <button type="submit" className="primary" disabled={busy || loading}>{busy ? "Saving…" : editing ? "Save changes" : "Create user"}</button>
               <button type="button" className="secondary" disabled={busy} onClick={closeEditor}>Cancel</button>

@@ -10,11 +10,10 @@ export const sopConfig = {
   minimumNoticeMinutes: 30,
   documentStatus: "For management approval",
 };
-export const canRequest = (user) =>
-  user.locationType === "FACTORY" ? factoryRequesters.includes(user.designation)
-    : user.locationType === "HEAD_OFFICE" && officeRequesters.includes(user.designation);
-export const canApprove = (user) => approverDesignations.includes(user.designation);
-export const canBook = (user) => user.designation === "Administrative Assistant";
+// Request details are collected per trip; only assigned account roles grant workflow authority.
+export const canRequest = (user) => Boolean(user.role && user.role !== "SUPER_ADMIN");
+export const canApprove = (user) => ["MANAGER", "ADMIN"].includes(user.role);
+export const canBook = (user) => user.role === "OPERATOR";
 export const transportPermissions = (user) => ({
   request: canRequest(user), approve: canApprove(user), book: canBook(user),
   monitor: user.role === "SUPER_ADMIN",

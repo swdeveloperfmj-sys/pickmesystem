@@ -15,7 +15,7 @@ import { z } from "zod";
 import { User, SuperAdminSetup, SetupState, AuditLog, Department, Role, TransportRequest } from "./models.js";
 import { registerTransport } from "./transport.js";
 import { isAllowedOrigin } from "./origin.js";
-import { designations, sopConfig } from "./sop.js";
+import { sopConfig } from "./sop.js";
 
 const registration = z
   .object({
@@ -78,10 +78,6 @@ const managedUserInput = z.object({
   role: z.string().regex(/^(ADMIN|EMPLOYEE|MANAGER|OPERATOR|CUSTOM_[a-f\d]{24})$/, "Select a valid role"),
   status: z.enum(["ACTIVE", "INACTIVE"]),
   departmentId: departmentId.nullable(),
-  designation: z.union([z.literal(""), z.enum(designations)]).default(""),
-  locationType: z.enum(["", "FACTORY", "HEAD_OFFICE", "SHOWROOM"]).default(""),
-  workLocation: z.string().trim().max(150).default(""),
-  employeeCategory: z.enum(["EXECUTIVE_OR_BELOW", "MANAGER"]).default("EXECUTIVE_OR_BELOW"),
 }).strict();
 const userPassword = z.string().min(6).refine(
   (value) => Buffer.byteLength(value, "utf8") <= 72,
@@ -98,10 +94,6 @@ const builtinRoles = [
 const publicRole = (role) => ({ value: `CUSTOM_${role.id}`, name: role.name, description: role.description, builtIn: false });
 const managedUser = (user) => ({
   ...publicUser(user),
-  designation: user.designation,
-  locationType: user.locationType,
-  workLocation: user.workLocation,
-  employeeCategory: user.employeeCategory,
   sopAcknowledgedAt: user.sopAcknowledgedAt,
   departmentId: user.department?._id?.toString() || null,
   department: user.department ? { id: user.department.id, name: user.department.name } : null,

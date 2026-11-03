@@ -2,6 +2,16 @@
 
 Source: `C:/Users/sabry/Downloads/PickMe SOP Simplified.pdf`, four pages, headed FMJ Holdings / Corporate Transport. The source is labelled "For management approval"; it does not establish that management has already approved it.
 
+## Current implementation requested by the user
+
+The user explicitly removed the account-level **Transport profile (SOP)** on 3 November 2026. The document rules below are source context; they do not override this later instruction.
+
+- Active staff accounts submit their own requests without a preconfigured designation or location, including accounts without an assigned department.
+- Each request collects designation, contact, an existing department, work location and approver designation. Requester and approver names come from their selected accounts. These are historical request snapshots, not account profile updates.
+- Manager and Admin accounts may approve requests assigned to them. Operator accounts perform Administrative Assistant booking actions. Custom role names and typed designations do not grant approval or booking permissions.
+- The requester name remains bound to the signed-in account. Ride passenger counts must match the passenger list; Flash requires receiver name/contact and item/sample details.
+- SOP acknowledgement, official-purpose confirmations, notice periods, vehicle rules, version checks and external WhatsApp/PickMe confirmations remain in place. Manager vehicle eligibility follows the trusted Manager/Admin account role.
+
 ## Business rules from the document
 
 - Official employee travel and item/sample deliveries only. Personal travel, including commuting, is prohibited.
@@ -29,5 +39,5 @@ Source: `C:/Users/sabry/Downloads/PickMe SOP Simplified.pdf`, four pages, headed
 - Preserve the existing Super Administrator setup, user/role/department management, themes and responsive navigation.
 - Do not send WhatsApp messages or create/amend/cancel a real PickMe booking automatically. No service credentials, API contract or explicit instruction to send messages has been supplied.
 - Prepared WhatsApp text and staff-recorded external references are appropriate; distinguish these from verified integration events.
-- The SOP does not authorize showroom requester designations. Do not invent them.
+- The source does not list showroom requester designations; the user's later instruction replaces account-level Annexure A request gating with per-request information.
 - Custom role labels alone must not grant Super Administrator access.

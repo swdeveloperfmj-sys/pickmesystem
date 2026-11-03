@@ -13,6 +13,8 @@ const text = z.string().trim().min(2).max(500);
 const contact = z.string().trim().max(30).regex(/^\+?[\d\s().-]+$/).refine((value) => { const count = value.replace(/\D/g, "").length; return count >= 7 && count <= 15; });
 const requestInput = z.object({
   service: z.enum(["RIDE", "FLASH"]), approverId: id,
+  requesterDesignation: text, requesterContact: contact, departmentId: id, workLocation: text, approverDesignation: text,
+  passengerCount: z.number().int().min(0).max(10),
   pickupAt: z.iso.datetime({ offset: true }), pickup: text, stopover: z.string().trim().max(500).default(""), destination: text,
   vehicle: z.enum(sopConfig.vehicles), deliveryRoute: z.enum(["BETWEEN_FACTORIES", "CUSTOMER_DELIVERY", "OTHER"]).default("OTHER"),
   purpose: text, justification: text,
@@ -30,11 +32,7 @@ const actionInput = z.object({
   routeVerified: z.boolean().optional(), completionMessageChecked: z.boolean().optional(),
 }).strict();
 const active = (user) => user && user.isActive && user.status === "ACTIVE";
-const userDetails = (user, department) => ({
-  id: user.id, fullName: user.fullName, username: user.username, contact: user.contact || "", designation: user.designation,
-  department: department?.name || "", workLocation: user.workLocation, locationType: user.locationType, employeeCategory: user.employeeCategory,
-});
-const staffProfile = (user, department) => ({ ...userDetails(user, department), permissions: transportPermissions(user), sopAcknowledgedAt: user.sopAcknowledgedAt });
+const staffProfile = (user, department) => ({ id: user.id, fullName: user.fullName, username: user.username, contact: user.contact || "", role: user.role, departmentId: department?.id || "", department: department?.name || "", permissions: transportPermissions(user), sopAcknowledgedAt: user.sopAcknowledgedAt });
 const publicRequest = (record) => ({ ...record.toObject(), id: record.id });
 const event = (user, action, note = "") => ({ action, actor: user._id, actorName: user.fullName, at: new Date(), note });
 const notice = (pickup) => { if (new Date(pickup).getTime() - Date.now() < 30 * 60000) fail(400, "The request and approval must be shared at least 30 minutes before pickup. Choose a later pickup time."); };
@@ -80,14 +78,15 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     res.sendStatus(204);
   });
   router.get("/config", (_req, res) => res.json(sopConfig));
+  router.get("/departments", async (_req, res) => res.json({ departments: (await Department.find().sort({ name: 1 })).map((department) => ({ id: department.id, name: department.name })) }));
   router.post("/acknowledge", async (req, res) => {
     z.object({ acknowledged: z.literal(true) }).strict().parse(req.body);
     const user = await User.findByIdAndUpdate(req.user._id, { $set: { sopAcknowledgedAt: new Date() } }, { returnDocument: "after" });
     res.json({ user: staffProfile(user, user.department && await Department.findById(user.department)) });
   });
   router.get("/approvers", async (_req, res) => {
-    const users = await User.find({ isActive: true, status: "ACTIVE", role: { $ne: "SUPER_ADMIN" }, designation: { $in: sopConfig.designations.filter((designation) => canApprove({ designation })) } });
-    res.json({ approvers: users.map((user) => ({ id: user.id, fullName: user.fullName, designation: user.designation })) });
+    const users = await User.find({ isActive: true, status: "ACTIVE", role: { $in: ["MANAGER", "ADMIN"] } });
+    res.json({ approvers: users.map((user) => ({ id: user.id, fullName: user.fullName })) });
   });
   const visible = (user) => user.role === "SUPER_ADMIN" || canBook(user) ? {} : { $or: [{ requester: user._id }, { approver: user._id }] };
   router.get("/requests", async (req, res) => {
@@ -101,26 +100,27 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
   });
   async function submit(req, res, update) {
     const user = req.user;
-    if (!canRequest(user) || user.role === "SUPER_ADMIN") fail(403, "Your designation and location are not authorized to submit requests under Annexure A.");
+    if (!canRequest(user)) fail(403, "Sign in with your staff account to submit your own request.");
     if (!user.sopAcknowledgedAt) fail(400, "Read and acknowledge the SOP before requesting transport.");
-    const department = user.department && await Department.findById(user.department);
-    if (!department || !user.contact || !user.workLocation) fail(400, "Ask your administrator to complete your department, contact, and work location.");
     const data = requestInput.parse(req.body);
+    const department = await Department.findById(data.departmentId);
+    if (!department) fail(400, "Select an existing department.");
     notice(data.pickupAt);
     const approver = await User.findById(data.approverId);
     if (!active(approver) || !canApprove(approver) || approver.id === user.id || approver.role === "SUPER_ADMIN") fail(400, "Select an active authorized approver.");
     if (data.service === "RIDE") {
-      if (!data.passengers.length || !data.passengers.some((person) => person.name.toLowerCase() === user.fullName.toLowerCase() && person.designation === user.designation)) fail(400, "Ride passenger details must include you with your designation.");
+      if (!data.passengers.length || !data.passengers.some((person) => person.name.toLowerCase() === user.fullName.toLowerCase() && person.designation === data.requesterDesignation)) fail(400, "Ride passenger details must include you with your designation.");
+      if (data.passengerCount !== data.passengers.length) fail(400, "Passenger count must match the listed passengers.");
       if (new Set(data.passengers.map((person) => person.name.toLowerCase())).size !== data.passengers.length) fail(400, "List each passenger once.");
     } else {
       text.parse(data.receiverName); contact.parse(data.receiverContact); text.parse(data.itemDetails);
-      if (data.passengers.length) fail(400, "Flash requests are for item/sample delivery, not passengers.");
+      if (data.passengers.length || data.passengerCount !== 0) fail(400, "Flash requests are for item/sample delivery, not passengers.");
     }
-    const eligible = eligibleVehicles({ ...data, category: user.employeeCategory });
+    const eligible = eligibleVehicles({ ...data, category: canApprove(user) ? "MANAGER" : "EXECUTIVE_OR_BELOW" });
     if (!eligible.includes(data.vehicle)) fail(400, `Annexure B permits: ${eligible.join(", ")} for this request.`);
-    const { approverId, officialOnly, requestShared, version, ...details } = data;
+    const { approverId, officialOnly, requestShared, version, requesterDesignation, requesterContact, departmentId, workLocation, approverDesignation, ...details } = data;
     const values = { ...details, pickupAt: new Date(data.pickupAt), requester: user._id, approver: approver._id,
-      requesterDetails: userDetails(user, department), approverDetails: { fullName: approver.fullName, designation: approver.designation },
+      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: requesterDesignation, contact: requesterContact, departmentId: department.id, department: department.name, workLocation }, approverDetails: { fullName: approver.fullName, designation: approverDesignation },
       status: "PENDING_APPROVAL", requestSharedAt: new Date(), approvalSharedAt: null, bookingReference: "", driverDetails: "", bookingRecordedBy: null };
     let record;
     if (update) {

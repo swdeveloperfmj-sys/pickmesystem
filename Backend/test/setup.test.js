@@ -307,14 +307,14 @@ test("custom roles are unique, protected, persistent and assignable without Supe
   await request(app).post(base).set("Cookie", cookie).set("Origin", "https://evil.example").send({ name: "Blocked" }).expect(403);
 });
 
-test("SOP workflow enforces self-service, Annexure A/B/C, approval deadlines, booking ownership and completion", async () => {
+test("SOP workflow collects request details without transport profiles and enforces self-service, Annexure B/C, approval deadlines, booking ownership and completion", async () => {
   const verified = await complete();
   const adminCookie = verified.headers["set-cookie"][0].split(";")[0];
   const department = await Department.create({ name: "Production", nameKey: "production" });
   const password = "Staff123";
   const passwordHash = await bcrypt.hash(password, 12);
   async function employee(username, designation, role = "EMPLOYEE", locationType = "FACTORY") {
-    return User.create({ fullName: username, username, passwordHash, contact: "0771234567", role, designation, locationType, workLocation: "Factory 1", department: department._id });
+    return User.create({ fullName: username, username, passwordHash, contact: "0771234567", role });
   }
   const requester = await employee("requester", "Production Executive");
   const outsider = await employee("outsider", "HR Executive");
@@ -331,20 +331,28 @@ test("SOP workflow enforces self-service, Annexure A/B/C, approval deadlines, bo
   const other = await loginStaff(outsider), wrongReviewer = await loginStaff(otherApprover), store = await loginStaff(showroom);
   const base = "/api/transport/requests";
   const pickupAt = new Date(Date.now() + 2 * 3600000).toISOString();
-  const body = { service: "RIDE", approverId: approver.id, pickupAt, pickup: "Factory 1", destination: "Head Office", vehicle: "THREE_WHEELER", purpose: "Official sample review", justification: "Required quality review", passengers: [{ name: requester.fullName, designation: requester.designation }], officialOnly: true, requestShared: true };
+  const body = { requesterDesignation: "Production Executive", requesterContact: "0771234567", departmentId: department.id, workLocation: "Factory 1", approverDesignation: "Sales Manager", passengerCount: 1, service: "RIDE", approverId: approver.id, pickupAt, pickup: "Factory 1", destination: "Head Office", vehicle: "THREE_WHEELER", purpose: "Official sample review", justification: "Required quality review", passengers: [{ name: requester.fullName, designation: "Production Executive" }], officialOnly: true, requestShared: true };
   await request(app).get(base).expect(401);
   await owner.get("/api/super-admin/users").expect(401);
   await owner.post(base).send(body).expect(400);
   await owner.post("/api/transport/acknowledge").send({ acknowledged: true }).expect(200);
-  await store.post(base).send(body).expect(403);
+  await store.post(base).send(body).expect(400);
   await owner.post(base).send({ ...body, requesterId: outsider.id }).expect(400);
   await owner.post(base).send({ ...body, officialOnly: false }).expect(400);
   await owner.post(base).send({ ...body, pickupAt: new Date(Date.now() + 20 * 60000).toISOString() }).expect(400);
   await owner.post(base).send({ ...body, vehicle: "CAR" }).expect(400);
   await owner.post(base).send({ ...body, passengers: [] }).expect(400);
+  await owner.post(base).send({ ...body, passengerCount: 2 }).expect(400);
+  await owner.post(base).send({ ...body, requesterDesignation: "" }).expect(400);
+  await owner.post(base).send({ ...body, requesterContact: "invalid" }).expect(400);
+  await owner.post(base).send({ ...body, departmentId: "000000000000000000000000" }).expect(400);
+  await owner.post(base).send({ ...body, approverId: outsider.id, approverDesignation: "Sales Manager" }).expect(400);
   const submitted = await owner.post(base).send(body).expect(201);
   const record = submitted.body.request;
-  assert.equal(record.requesterDetails.contact, requester.contact);
+  assert.equal(record.requesterDetails.contact, body.requesterContact);
+  assert.equal(record.requesterDetails.designation, body.requesterDesignation);
+  assert.equal(record.requesterDetails.workLocation, "Factory 1");
+  assert.equal(record.passengerCount, 1);
   assert.equal(record.requesterDetails.department, "Production");
   assert.equal((await other.get(base)).body.requests.length, 0);
   assert.equal((await wrongReviewer.get(base)).body.requests.length, 0);
@@ -371,8 +379,8 @@ test("SOP workflow enforces self-service, Annexure A/B/C, approval deadlines, bo
     .send({ action: "COMPLETE", version: 3, routeVerified: true, completionMessageChecked: true }).expect(403);
   const group = [...body.passengers, { name: "Person Two", designation: "Executive" }, { name: "Person Three", designation: "Executive" }];
   await owner.post(base).send({ ...body, vehicle: "CAR", passengers: group }).expect(400);
-  await owner.post(base).send({ ...body, vehicle: "CAR", passengers: group, groupCarEligible: true }).expect(201);
-  const flash = { ...body, service: "FLASH", passengers: [], deliveryRoute: "CUSTOMER_DELIVERY", receiverName: "Receiver", receiverContact: "0771234567", itemDetails: "Fabric samples" };
+  await owner.post(base).send({ ...body, vehicle: "CAR", passengers: group, passengerCount: 3, groupCarEligible: true }).expect(201);
+  const flash = { ...body, service: "FLASH", passengers: [], passengerCount: 0, deliveryRoute: "CUSTOMER_DELIVERY", receiverName: "Receiver", receiverContact: "0771234567", itemDetails: "Fabric samples" };
   await owner.post(base).send(flash).expect(400);
   await owner.post(base).send({ ...flash, vehicle: "MOTORBIKE", receiverContact: "bad" }).expect(400);
   await owner.post(base).send({ ...flash, vehicle: "MOTORBIKE" }).expect(201);
@@ -390,7 +398,7 @@ test("SOP changes, returns and cancellations require responsible staff and rejec
   async function agent(user) { const agent = request.agent(app); await agent.post("/api/transport/auth/login").send({ username: user.username, password: "Staff123" }).expect(200); return agent; }
   const owner = await agent(ownerUser), reviewer = await agent(approver), assistant = await agent(operator);
   const base = "/api/transport/requests";
-  const body = { service: "RIDE", approverId: approver.id, pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Accounts review", justification: "Official review", passengers: [{ name: "Owner", designation: "Accounts Executive" }], officialOnly: true, requestShared: true };
+  const body = { requesterDesignation: "Accounts Executive", requesterContact: "0771234567", departmentId: department.id, workLocation: "Head Office", approverDesignation: "Finance Manager", passengerCount: 1, service: "RIDE", approverId: approver.id, pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Accounts review", justification: "Official review", passengers: [{ name: "Owner", designation: "Accounts Executive" }], officialOnly: true, requestShared: true };
   let record = (await owner.post(base).send(body).expect(201)).body.request;
   async function act(agent, action, extra = {}) { const result = await agent.post(`${base}/${record.id}/action`).send({ action, version: record.version, ...extra }).expect(200); record = result.body.request; }
   await act(reviewer, "RETURN", { note: "Clarify purpose" });

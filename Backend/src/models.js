@@ -56,6 +56,7 @@ export const TransportRequest = mongoose.model("TransportRequest", new Schema({
   purpose: String,
   justification: String,
   passengers: [{ _id: false, name: String, designation: String }],
+  passengerCount: { type: Number, min: 0, max: 10 },
   receiverName: String,
   receiverContact: String,
   itemDetails: String,

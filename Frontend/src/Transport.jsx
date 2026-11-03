@@ -55,7 +55,7 @@ export function SopSummary() {
       <li>Coordinate with the driver, verify pickup/route/destination and the completion message, and report changes, cancellations or delays immediately.</li>
       <li>HR must explain the SOP to new recruits and retain their acknowledgement in the personal file. This acknowledgement record supplements that process.</li>
     </ul>
-    <p className="muted">Authorized requesters: Factory Production, Quality Assurance, Engineering, D&amp;D and HR Executives; Head Office Accounts Executives, Sales Coordinators and Senior Audit Associate. Authorized approvers: Sales/Finance/Operations/Factory/Engineering/Quality Assurance Managers, Head of HR and Executive Assistant to the Director. Annexure A does not list showroom requester designations.</p>
+    <p className="muted">Enter your designation, contact, department and location with each request. Assigned Manager or Admin accounts approve requests; Operator accounts record bookings as the Administrative Assistant.</p>
   </section>;
 }
 
@@ -84,8 +84,6 @@ export function StaffWorkspace({ ThemeToggle, Brand }) {
     catch (err) { setError(err.message); dialog.current.close(); } finally { setBusy(false); }
   }
   if (!user) return <main className="loading"><p role="status">{error || "Opening transport workspace…"}</p><button className="secondary" onClick={load}>Retry</button></main>;
-  const hasAccess = Object.values(user.permissions).some(Boolean);
-  const profileReady = user.designation && user.workLocation && user.locationType;
   const initials = user.fullName.trim().split(/\s+/).slice(0, 2).map((name) => name[0]).join("").toUpperCase();
   const overviewCards = [
     ["Total requests", "total", "route"], ["Awaiting approval", "pending", "clock"],
@@ -106,33 +104,33 @@ export function StaffWorkspace({ ThemeToggle, Brand }) {
     <div className="staff-content page-enter">
       <div className="staff-page-label"><span>WORKSPACE <span aria-hidden="true">/</span> Transport</span><button className="staff-refresh" aria-label="Refresh" onClick={() => { load(); setRefreshKey((value) => value + 1); }}><WorkspaceIcon type="refresh" size={16} />Refresh</button></div>
       <section className="staff-hero">
-        <div className="staff-hero-copy"><span className="eyebrow accent">FMJ CORPORATE TRANSPORT</span><h1>Welcome, {user.fullName}</h1><p>Your work takes you places.<br />Keep every journey organized, from request to arrival.</p><div className="staff-hero-tags"><span><WorkspaceIcon type="user" size={14} />{user.designation || "Profile setup pending"}</span>{user.workLocation && <span><WorkspaceIcon type="route" size={14} />{user.workLocation}</span>}</div></div>
+        <div className="staff-hero-copy"><span className="eyebrow accent">FMJ CORPORATE TRANSPORT</span><h1>Welcome, {user.fullName}</h1><p>Your work takes you places.<br />Keep every journey organized, from request to arrival.</p><div className="staff-hero-tags"><span><WorkspaceIcon type="user" size={14} />{label(user.role)}</span>{user.department && <span><WorkspaceIcon type="route" size={14} />{user.department}</span>}</div></div>
         <div className="staff-journey" aria-hidden="true"><div className="staff-journey-heading"><span className="staff-journey-symbol"><WorkspaceIcon type="trip" size={26} /></span><div><strong>A smoother way to work.</strong><span>One workspace. Every journey.</span></div></div><div className="staff-journey-stops"><span><i>01</i>Request</span><b /><span><i>02</i>Approve</span><b /><span><i>03</i>Travel</span></div></div>
       </section>
       {error && <div role="alert" className="error">{error}</div>}
       <section className="staff-overview" aria-label="Transport overview">{overviewCards.map(([title, key, icon]) => <article className="staff-stat" key={key}><div><span>{title}</span><strong>{overview ? overview[key].toLocaleString() : "—"}</strong></div><span className="staff-stat-icon"><WorkspaceIcon type={icon} /></span></article>)}</section>
-      <div className={`staff-support-grid${!hasAccess ? " has-profile-notice" : ""}`}>
+      <div className="staff-support-grid">
         <section className="staff-guidelines"><span className="staff-support-icon"><WorkspaceIcon type="book" /></span><div className="staff-support-copy"><div className="staff-support-title"><h2>Travel guidelines</h2><span className={`staff-policy-status${user.sopAcknowledgedAt ? " is-read" : ""}`}>{user.sopAcknowledgedAt ? "Acknowledged" : "Please review"}</span></div><p>Official trips only. Share your request and approval at least 30 minutes before pickup.</p></div><button className="secondary" onClick={() => policyDialog.current.showModal()}>Read guidelines <span aria-hidden="true">↗</span></button></section>
-        {!hasAccess && <section className="staff-profile-notice"><span className="staff-support-icon"><WorkspaceIcon type="user" /></span><div><h2>{profileReady ? "Transport access needs review" : "Finish your account setup"}</h2><p>{profileReady ? "Ask your administrator to review your transport eligibility under Annexure A." : "Your administrator needs to complete your designation, location type and work location."}</p><p><strong>Super Admin → User Management → Edit → Transport profile (SOP)</strong></p></div></section>}
       </div>
       <TransportPanel user={user} refreshKey={refreshKey} onStats={setOverview} />
     </div>
   </main>;
 }
 
-function RequestForm({ user, approvers, record, onClose, onSaved }) {
-  const [form, setForm] = useState(() => record ? { ...blank, ...record, approverId: String(record.approver), pickupAt: localDate(record.pickupAt), otherPassengers: record.passengers.filter((person) => person.name.toLowerCase() !== user.fullName.toLowerCase()).map((person) => `${person.name} | ${person.designation}`).join("\n"), officialOnly: false, requestShared: false } : blank);
+function RequestForm({ user, approvers, departments, record, onClose, onSaved }) {
+  const [form, setForm] = useState(() => ({ ...blank, requesterDesignation: record?.requesterDetails.designation || "", requesterContact: record?.requesterDetails.contact || user.contact || "", departmentId: record?.requesterDetails.departmentId || departments.find((department) => department.name === record?.requesterDetails.department)?.id || user.departmentId || "", workLocation: record?.requesterDetails.workLocation || "", approverDesignation: record?.approverDetails.designation || "", passengerCount: record?.passengers.length || 1,
+    ...(record ? { ...record, approverId: String(record.approver), pickupAt: localDate(record.pickupAt), otherPassengers: record.passengers.filter((person) => person.name.toLowerCase() !== user.fullName.toLowerCase()).map((person) => person.name + " | " + person.designation).join("\n"), officialOnly: false, requestShared: false } : {}) }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showMessage, setShowMessage] = useState(false);
   function change(event) { const { name, value, type, checked } = event.target; setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value })); }
-  const passengers = [{ name: user.fullName, designation: user.designation }, ...form.otherPassengers.split("\n").filter((line) => line.trim()).map((line) => { const [name, ...designation] = line.split("|"); return { name: name.trim(), designation: designation.join("|").trim() }; })];
+  const passengers = [{ name: user.fullName, designation: form.requesterDesignation }, ...form.otherPassengers.split("\n").filter((line) => line.trim()).map((line) => { const [name, ...designation] = line.split("|"); return { name: name.trim(), designation: designation.join("|").trim() }; })];
   const approver = approvers.find((person) => person.id === form.approverId);
-  const message = [`Service: PickMe ${label(form.service)}`, `Requester: ${user.fullName} | ${user.designation} | ${user.contact}`, `Department: ${user.department}`, `Location: ${user.workLocation}`, `Approver: ${approver?.fullName || "Select approver"} | ${approver?.designation || ""}`, `Pickup date/time: ${form.pickupAt || "Not selected"} (device local time)`, `Pickup: ${form.pickup}`, `Stopover: ${form.stopover || "None"}`, `Destination: ${form.destination}`, `Vehicle: ${label(form.vehicle)}`, `Official purpose: ${form.purpose}`, `Justification: ${form.justification}`, form.service === "RIDE" ? `Passengers (${passengers.length}): ${passengers.map((person) => `${person.name} (${person.designation})`).join(", ")}` : `Receiver: ${form.receiverName} | ${form.receiverContact}\nItems/samples: ${form.itemDetails}`].join("\n");
+  const message = [`Service: PickMe ${label(form.service)}`, `Requester: ${user.fullName} | ${form.requesterDesignation} | ${form.requesterContact}`, `Department: ${departments.find((department) => department.id === form.departmentId)?.name || ""}`, `Location: ${form.workLocation}`, `Approver: ${approver?.fullName || "Select approver"} | ${form.approverDesignation}`, `Pickup date/time: ${form.pickupAt || "Not selected"} (device local time)`, `Pickup: ${form.pickup}`, `Stopover: ${form.stopover || "None"}`, `Destination: ${form.destination}`, `Vehicle: ${label(form.vehicle)}`, `Official purpose: ${form.purpose}`, `Justification: ${form.justification}`, form.service === "RIDE" ? `Passengers (${passengers.length}): ${passengers.map((person) => `${person.name} (${person.designation})`).join(", ")}` : `Receiver: ${form.receiverName} | ${form.receiverContact}\nItems/samples: ${form.itemDetails}`].join("\n");
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError("");
     try {
-      const body = { service: form.service, approverId: form.approverId, pickupAt: new Date(form.pickupAt).toISOString(), pickup: form.pickup, stopover: form.stopover, destination: form.destination, vehicle: form.vehicle, deliveryRoute: form.deliveryRoute, purpose: form.purpose, justification: form.justification,
+      const body = { requesterDesignation: form.requesterDesignation, requesterContact: form.requesterContact, departmentId: form.departmentId, workLocation: form.workLocation, approverDesignation: form.approverDesignation, passengerCount: form.service === "RIDE" ? Number(form.passengerCount) : 0, service: form.service, approverId: form.approverId, pickupAt: new Date(form.pickupAt).toISOString(), pickup: form.pickup, stopover: form.stopover, destination: form.destination, vehicle: form.vehicle, deliveryRoute: form.deliveryRoute, purpose: form.purpose, justification: form.justification,
         passengers: form.service === "RIDE" ? passengers : [], receiverName: form.service === "FLASH" ? form.receiverName : "", receiverContact: form.service === "FLASH" ? form.receiverContact : "", itemDetails: form.service === "FLASH" ? form.itemDetails : "", officialOnly: form.officialOnly, requestShared: form.requestShared, groupCarEligible: form.groupCarEligible };
       if (record) body.version = record.version;
       const data = await api(`/transport/requests${record ? `/${record.id}` : ""}`, body, record ? "PUT" : "POST");
@@ -141,23 +139,28 @@ function RequestForm({ user, approvers, record, onClose, onSaved }) {
   }
   return <section className="transport-form page-enter"><h2>{record ? "Correct and resubmit request" : "New transport request"}</h2>
     <p className="muted">Request for yourself only. Share both request and approval at least 30 minutes before pickup. Times below use your device’s local time.</p>
-    <p className="badge">{user.fullName} · {user.designation} · {user.department}</p>
     {error && <div className="error" role="alert">{error}</div>}
     <form onSubmit={submit}>
       <fieldset disabled={busy} className="transport-fields">
+        <h3>Requester details</h3>
+        <div className="field-row"><label>Requester name<input value={user.fullName} readOnly /></label><label>Requester designation<input name="requesterDesignation" value={form.requesterDesignation} onChange={change} required minLength={2} maxLength={100} /></label></div>
+        <div className="field-row"><label>Requester contact<input type="tel" name="requesterContact" value={form.requesterContact} onChange={change} required maxLength={30} /></label><div className="select-field"><label htmlFor="request-department">Department</label><select id="request-department" name="departmentId" value={form.departmentId} onChange={change} required><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></div></div>
+        <label>Department / work location<input name="workLocation" value={form.workLocation} onChange={change} required minLength={2} maxLength={150} placeholder="e.g. Factory 1, Colombo" /></label>
+        <h3>Journey &amp; approval</h3>
         <div className="field-row">
           <div className="select-field"><label htmlFor="trip-service">Service</label><select id="trip-service" name="service" value={form.service} onChange={change}><option value="RIDE">PickMe Ride (passengers)</option><option value="FLASH">PickMe Flash (items/samples)</option></select></div>
-          <div className="select-field"><label htmlFor="trip-approver">Authorized approver</label><select id="trip-approver" name="approverId" value={form.approverId} onChange={change} required><option value="">Select approver</option>{approvers.map((person) => <option key={person.id} value={person.id}>{person.fullName} — {person.designation}</option>)}</select></div>
+          <div className="select-field"><label htmlFor="trip-approver">Authorized approver</label><select id="trip-approver" name="approverId" value={form.approverId} onChange={change} required><option value="">Select approver</option>{approvers.map((person) => <option key={person.id} value={person.id}>{person.fullName}</option>)}</select></div>
         </div>
-        {approvers.length === 0 && <p className="error">No active authorized approvers. Ask your administrator to configure approver designations.</p>}
+        {approvers.length === 0 && <p className="error">No active authorized approvers. Ask your administrator to assign a Manager or Admin account.</p>}
+        <label>Approver designation<input name="approverDesignation" value={form.approverDesignation} onChange={change} required minLength={2} maxLength={100} /></label>
         <label>Pickup date and time<input type="datetime-local" name="pickupAt" value={form.pickupAt} min={localDate(Date.now() + 30 * 60000)} onChange={change} required /></label>
         <div className="field-row"><label>Pickup location<input name="pickup" value={form.pickup} onChange={change} required minLength={2} maxLength={500} /></label><label>Destination<input name="destination" value={form.destination} onChange={change} required minLength={2} maxLength={500} /></label></div>
         <label>Stopover (optional)<input name="stopover" value={form.stopover} onChange={change} maxLength={500} /></label>
         {form.service === "FLASH" && <><div className="select-field"><label htmlFor="delivery-route">Delivery route</label><select id="delivery-route" name="deliveryRoute" value={form.deliveryRoute} onChange={change}><option value="OTHER">Other official delivery</option><option value="BETWEEN_FACTORIES">Between factories</option><option value="CUSTOMER_DELIVERY">Customer delivery</option></select></div><div className="field-row"><label>Receiver name<input name="receiverName" value={form.receiverName} onChange={change} required minLength={2} maxLength={100} /></label><label>Receiver contact<input type="tel" name="receiverContact" value={form.receiverContact} onChange={change} required maxLength={30} /></label></div><label>Item or sample details<textarea name="itemDetails" value={form.itemDetails} onChange={change} required minLength={2} maxLength={500} /></label></>}
-        {form.service === "RIDE" && <label>Additional passengers (optional)<textarea name="otherPassengers" value={form.otherPassengers} onChange={change} placeholder="One per line: Full name | Designation" /><small>Your name/designation is included automatically. Passenger count: {passengers.length}.</small></label>}
+        {form.service === "RIDE" && <><label>Number of passengers<input type="number" name="passengerCount" value={form.passengerCount} onChange={change} required min="1" max="10" /><small>Include yourself. This must match the passenger names below.</small></label><label>Additional passengers (optional)<textarea name="otherPassengers" value={form.otherPassengers} onChange={change} placeholder="One per line: Full name | Designation" /><small>Your name/designation is included automatically. Listed passengers: {passengers.length}.</small></label></>}
         <div className="select-field"><label htmlFor="trip-vehicle">Vehicle</label><select id="trip-vehicle" name="vehicle" value={form.vehicle} onChange={change}><option value="MOTORBIKE">Motorbike</option><option value="THREE_WHEELER">Three-wheeler</option><option value="CAR">Car</option></select></div>
         <p className="muted">Inter-factory/customer deliveries: motorbike. Otherwise executives/below: three-wheeler; managers: car or three-wheeler. Three or more passengers may use a car with approval.</p>
-        {form.service === "RIDE" && form.vehicle === "CAR" && user.employeeCategory !== "MANAGER" && <label className="check-label"><input type="checkbox" name="groupCarEligible" checked={form.groupCarEligible} onChange={change} required />All {passengers.length} passengers are employees in the Executive category or below; at least three are travelling together. This car request requires approval.</label>}
+        {form.service === "RIDE" && form.vehicle === "CAR" && !["MANAGER", "ADMIN"].includes(user.role) && <label className="check-label"><input type="checkbox" name="groupCarEligible" checked={form.groupCarEligible} onChange={change} required />All {passengers.length} passengers are employees in the Executive category or below; at least three are travelling together. This car request requires approval.</label>}
         <label>Official purpose<textarea name="purpose" value={form.purpose} onChange={change} required minLength={2} maxLength={500} /></label>
         <label>Justification<textarea name="justification" value={form.justification} onChange={change} required minLength={2} maxLength={500} /></label>
         <button type="button" className="secondary" onClick={() => setShowMessage((value) => !value)}>Prepare WhatsApp request text</button>
@@ -196,11 +199,11 @@ function ActionForm({ record, action, base, onClose, onSaved }) {
 
 export function TransportPanel({ user, admin = false, refreshKey, section = "Transport Requests", onChanged = () => {}, onStats }) {
   const base = admin ? "/super-admin/transport" : "/transport";
-  const [records, setRecords] = useState([]); const [approvers, setApprovers] = useState([]); const [error, setError] = useState(""); const [loading, setLoading] = useState(true);
+  const [records, setRecords] = useState([]); const [approvers, setApprovers] = useState([]); const [departments, setDepartments] = useState([]); const [error, setError] = useState(""); const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("all"); const [form, setForm] = useState(null); const [action, setAction] = useState(null); const [message, setMessage] = useState(null); const [notice, setNotice] = useState("");
   async function load() {
     setLoading(true); setError("");
-    try { const [data, people] = await Promise.all([api(`${base}/requests`), api(`${base}/approvers`)]); setRecords(data.requests); setApprovers(people.approvers); }
+    try { const [data, people, teams] = await Promise.all([api(`${base}/requests`), api(`${base}/approvers`), api(`${base}/departments`)]); setRecords(data.requests); setApprovers(people.approvers.filter((person) => person.id !== user?.id)); setDepartments(teams.departments); }
     catch (err) { setError(err.message); } finally { setLoading(false); }
   }
   useEffect(() => { load(); }, [refreshKey, base]);
@@ -210,11 +213,8 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
   function saved(record) { setRecords((items) => [record, ...items.filter((item) => item.id !== record.id)]); setNotice(`Request ${label(record.status)}.`); onChanged(); }
   async function prepare(record) { try { const data = await api(`${base}/requests/${record.id}/message`); setMessage({ id: record.id, text: data.text }); } catch (err) { setError(err.message); } }
   const permissions = user?.permissions || { monitor: true };
-  const requestBlockedReason = !permissions.request
-    ? "Your administrator must configure an SOP-authorized designation and location for your account."
-    : !user.department || !user.contact || !user.workLocation
-      ? "Ask your administrator to complete your department, contact and work location."
-      : !user.sopAcknowledgedAt ? "Read guidelines and acknowledge the SOP to create a request." : "";
+  const requestBlockedReason = !permissions.request ? "Sign in with your staff account to create a request."
+    : !user.sopAcknowledgedAt ? "Read guidelines and acknowledge the SOP to create a request." : "";
   const shown = records.filter((record) => {
     if (section === "Approval Management" || tab === "approvals") return record.status === "PENDING_APPROVAL" && (admin || String(record.approver) === user.id);
     if (section === "Booking Management" || tab === "bookings") return ["APPROVED", "BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"].includes(record.status);
@@ -224,7 +224,7 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
     {!admin && <div className="transport-toolbar"><div className="management-sections"><button aria-pressed={tab === "all"} onClick={() => setTab("all")}>{permissions.approve || permissions.book ? "Requests" : "My requests"}</button>{permissions.approve && <button aria-pressed={tab === "approvals"} onClick={() => setTab("approvals")}>Approvals</button>}{permissions.book && <button aria-pressed={tab === "bookings"} onClick={() => setTab("bookings")}>Bookings</button>}</div><div className="staff-new-request"><button className="primary" disabled={!!requestBlockedReason} aria-describedby={requestBlockedReason ? "request-setup-help" : undefined} onClick={() => { setForm({}); setAction(null); }}>New request</button>{requestBlockedReason && <p id="request-setup-help">{requestBlockedReason}</p>}</div></div>}
     {admin && <p className="info">Monitoring view. Employees submit their own requests at <Link to="/login">Staff sign in</Link>. Approvers and the Administrative Assistant perform actions from their own accounts.</p>}
     {error && <div className="error" role="alert">{error}</div>}<p className="department-status" role="status">{notice}</p>
-    {form && <RequestForm key={form.id || "new"} record={form.id ? form : null} user={user} approvers={approvers} onClose={() => setForm(null)} onSaved={saved} />}
+    {form && <RequestForm key={form.id || "new"} record={form.id ? form : null} user={user} approvers={approvers} departments={departments} onClose={() => setForm(null)} onSaved={saved} />}
     {loading ? <p role="status">Loading requests…</p> : !shown.length ? <div className="empty-state staff-request-empty"><span className="staff-empty-icon"><WorkspaceIcon type="route" size={28} /></span><h2>No requests yet</h2><p className="muted">Once a request is submitted, its approval and trip updates will appear here.</p></div> : <div className="request-list">{shown.map((record) => {
       const own = !admin && String(record.requester) === user.id;
       const assigned = !admin && String(record.approver) === user.id && permissions.approve;

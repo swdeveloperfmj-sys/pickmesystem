@@ -324,10 +324,7 @@ test(
       await person.getByText(/Transport Coordinator/).waitFor();
       await person.getByText(/People Operations/).waitFor();
       await person.getByRole("button", { name: "Edit", exact: true }).click();
-      await page.getByRole("group", { name: "Transport profile (SOP)", exact: true }).waitFor();
-      await page.getByLabel("Designation", { exact: true }).selectOption("Accounts Executive");
-      await page.getByLabel("Location type", { exact: true }).selectOption("HEAD_OFFICE");
-      await page.getByLabel("Work location", { exact: true }).fill("Head Office");
+      assert.equal(await page.getByRole("group", { name: "Transport profile (SOP)", exact: true }).count(), 0);
       assert.equal(await page.getByLabel("Contact number", { exact: true }).inputValue(), "0771234567");
       await page.getByLabel("Contact number", { exact: true }).fill("0777654321");
       await page.getByLabel("Role", { exact: true }).selectOption("MANAGER");
@@ -419,10 +416,10 @@ test(
       await page.waitForURL("**/super-admin/login");
       const transportDept = await Department.create({ name: "Transport Test", nameKey: "transport test" });
       const passwordHash = await bcrypt.hash("Staff123", 12);
-      const common = { passwordHash, department: transportDept._id, contact: "0771234567", locationType: "FACTORY", workLocation: "Factory 1" };
-      const staffRequester = await User.create({ ...common, fullName: "Request Employee", username: "request.employee", designation: "Production Executive", role: "EMPLOYEE" });
-      const staffApprover = await User.create({ ...common, fullName: "Sales Approver", username: "sales.approver", designation: "Sales Manager", role: "MANAGER" });
-      await User.create({ ...common, fullName: "Booking Assistant", username: "booking.assistant", designation: "Administrative Assistant", role: "OPERATOR" });
+      const common = { passwordHash, department: transportDept._id, contact: "0771234567" };
+      const staffRequester = await User.create({ ...common, fullName: "Request Employee", username: "request.employee", role: "EMPLOYEE" });
+      const staffApprover = await User.create({ ...common, fullName: "Sales Approver", username: "sales.approver", role: "MANAGER" });
+      await User.create({ ...common, fullName: "Booking Assistant", username: "booking.assistant", role: "OPERATOR" });
       async function staffLogin(username, password = "Staff123") {
         await page.goto(`${config.APP_ORIGIN}/login`);
         await page.getByLabel("Username", { exact: true }).fill(username);
@@ -441,6 +438,9 @@ test(
       await page.getByRole("button", { name: /Read guidelines/ }).click();
       await page.getByRole("button", { name: "I have read and understood the SOP", exact: true }).click();
       await page.getByRole("button", { name: "New request", exact: true }).click();
+      await page.getByLabel("Requester designation", { exact: true }).fill("Production Executive");
+      await page.getByLabel("Department / work location", { exact: true }).fill("Factory 1");
+      await page.getByLabel("Approver designation", { exact: true }).fill("Sales Manager");
       await page.getByLabel("Authorized approver", { exact: true }).selectOption(staffApprover.id);
       const future = await page.evaluate(() => { const date = new Date(Date.now() + 3 * 3600000); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); });
       await page.getByLabel("Pickup date and time", { exact: true }).fill(future);
@@ -486,9 +486,9 @@ test(
       assert.equal(await TransportRequest.countDocuments({ status: "COMPLETED" }), 1);
       await staffLogout();
       await staffLogin("directory.sample1", "Sample123");
-      await page.getByRole("heading", { name: "Finish your account setup", exact: true }).waitFor();
+      assert.equal(await page.getByRole("heading", { name: "Finish your account setup", exact: true }).count(), 0);
       assert.equal(await page.getByRole("button", { name: "New request", exact: true }).isDisabled(), true);
-      await page.getByText("Your administrator must configure an SOP-authorized designation and location for your account.", { exact: true }).waitFor();
+      await page.getByText("Read guidelines and acknowledge the SOP to create a request.", { exact: true }).waitFor();
       assert.equal(await page.getByRole("dialog", { name: "Transport guidelines", exact: true }).isVisible(), false);
       await checkResponsiveLayout();
       await page.screenshot({ path: `${artifactDir}/staff-setup-dark-desktop.png`, fullPage: true, animations: "disabled" });
@@ -499,6 +499,17 @@ test(
       await page.screenshot({ path: `${artifactDir}/staff-setup-mobile.png`, fullPage: true, animations: "disabled" });
       await page.getByRole("button", { name: /Read guidelines/ }).click();
       await page.getByRole("dialog", { name: "Transport guidelines", exact: true }).waitFor();
+      await page.getByRole("button", { name: "I have read and understood the SOP", exact: true }).click();
+      await page.getByRole("dialog", { name: "Transport guidelines", exact: true }).waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "New request", exact: true }).click();
+      await page.getByLabel("Requester designation", { exact: true }).waitFor();
+      await checkResponsiveLayout();
+      await page.screenshot({ path: `${artifactDir}/request-form-desktop.png`, fullPage: true, animations: "disabled" });
+      await page.getByLabel("Service", { exact: true }).selectOption("FLASH");
+      await page.getByLabel("Receiver name", { exact: true }).waitFor();
+      assert.equal(await page.getByLabel("Number of passengers", { exact: true }).count(), 0);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({ path: `${artifactDir}/request-form-flash-mobile.png`, fullPage: true, animations: "disabled" });
       await page.keyboard.press("Escape");
       await page.getByRole("dialog", { name: "Transport guidelines", exact: true }).waitFor({ state: "hidden" });
       assert.deepEqual(pageErrors, []);
