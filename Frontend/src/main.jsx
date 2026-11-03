@@ -659,23 +659,6 @@ function Dashboard() {
           </div>
         </header>
         <div className="dashboard-content page-enter" key={section}>
-          <div className="page-heading">
-            <div>
-              <span className="eyebrow accent">YOUR WORKSPACE AT A GLANCE</span>
-              <h1>{section === "Dashboard" ? "Overview" : section}</h1>
-              <p className="muted">
-                {section === "Dashboard"
-                  ? `Welcome back, ${user.fullName.split(" ")[0]}. Here’s your organization today.`
-                  : "Manage your organization from one secure workspace."}
-              </p>
-            </div>
-            <button className="secondary" aria-label="Refresh" onClick={() => {
-              load();
-              setDepartmentRefresh((value) => value + 1);
-            }}>
-              ↻ Refresh
-            </button>
-          </div>
           <ErrorBox error={error} />
           {section === "Dashboard" ? (
             <>
