@@ -12,6 +12,7 @@ import { api } from "./api";
 import "./styles.css";
 import Departments from "./Departments";
 import Users from "./Users";
+import { StaffLogin, StaffWorkspace, TransportPanel } from "./Transport";
 
 const ThemeContext = createContext(null);
 
@@ -54,17 +55,17 @@ function ThemeToggle() {
   );
 }
 
-function Brand() {
+function Brand({ onLogoClick } = {}) {
   return (
     <div className="brand">
-      <span className="brand-icon">C</span>
+      {onLogoClick ? <button type="button" className="brand-icon brand-expand" aria-label="Expand sidebar" title="Expand sidebar" onClick={onLogoClick}>C</button> : <span className="brand-icon">C</span>}
       <span>
         CTMS<small>TRANSPORT MANAGEMENT</small>
       </span>
     </div>
   );
 }
-function AuthLayout({ children, step, login = false }) {
+function AuthLayout({ children, step, login = false, portalLabel = "ADMINISTRATION PORTAL" }) {
   return (
     <main className="auth-shell">
       <aside className="story">
@@ -96,7 +97,7 @@ function AuthLayout({ children, step, login = false }) {
       </aside>
       <section className="auth-main">
         <div className="auth-top">
-          ADMINISTRATION PORTAL
+          {portalLabel}
           <div className="header-actions">
             <span>● Secure access</span>
             <ThemeToggle />
@@ -458,6 +459,7 @@ function Login({ setupRequired }) {
           {busy ? "Signing in…" : "Sign in securely"} <span>→</span>
         </button>
       </form>
+      <p className="form-bottom">Employee, approver or Administrative Assistant? <Link to="/login">Staff sign in</Link></p>
       {setupRequired && (
         <p className="form-bottom">
           First time here?{" "}
@@ -572,7 +574,7 @@ function Dashboard() {
       </dialog>
       <aside className="sidebar">
         <div className="sidebar-heading">
-          <Brand />
+          <Brand onLogoClick={sidebarCollapsed ? () => setSidebarCollapsed(false) : undefined} />
           <button
             type="button"
             className="sidebar-toggle"
@@ -610,6 +612,7 @@ function Dashboard() {
               title={item}
               onClick={() => {
                 setSection(item);
+                setSidebarCollapsed(false);
                 setMenuOpen(false);
               }}
               aria-current={section === item ? "page" : undefined}
@@ -708,8 +711,8 @@ function Dashboard() {
                     directory.
                   </p>
                   <p className="muted">
-                    Transport, approval, and booking statistics will
-                    appear when their modules are connected.
+                    Transport, approval, and completed booking totals follow
+                    the staff transport workflow.
                   </p>
                 </div>
               </section>
@@ -728,6 +731,8 @@ function Dashboard() {
             <Departments refreshKey={departmentRefresh} onChanged={load} />
           ) : section === "User Management" ? (
             <Users refreshKey={departmentRefresh} onChanged={load} />
+          ) : ["Transport Requests", "Approval Management", "Booking Management"].includes(section) ? (
+            <TransportPanel admin section={section} refreshKey={departmentRefresh} onChanged={load} />
           ) : (
             <section className="empty-state">
               <span className="welcome-symbol">◇</span>
@@ -781,6 +786,8 @@ function App() {
     );
   return (
     <Routes>
+      <Route path="/login" element={<StaffLogin Layout={AuthLayout} />} />
+      <Route path="/transport" element={<StaffWorkspace ThemeToggle={ThemeToggle} Brand={Brand} />} />
       <Route
         path="/super-admin/setup"
         element={

@@ -13,6 +13,7 @@ import {
   AuditLog,
   Department,
   Role,
+  TransportRequest,
   initializeDatabase,
 } from "../src/models.js";
 import { readConfig } from "../src/config.js";
@@ -64,6 +65,7 @@ beforeEach(async () => {
     AuditLog.deleteMany({}),
     Department.deleteMany({}),
     Role.deleteMany({}),
+    TransportRequest.deleteMany({}),
   ]);
   sent = [];
   failMail = false;
@@ -303,6 +305,115 @@ test("custom roles are unique, protected, persistent and assignable without Supe
   await request(app).get(base).set("Cookie", `ctms_session=${token}`).expect(401);
   await request(app).post("/api/super-admin/auth/login").send({ identifier: userData.username, password }).expect(401);
   await request(app).post(base).set("Cookie", cookie).set("Origin", "https://evil.example").send({ name: "Blocked" }).expect(403);
+});
+
+test("SOP workflow enforces self-service, Annexure A/B/C, approval deadlines, booking ownership and completion", async () => {
+  const verified = await complete();
+  const adminCookie = verified.headers["set-cookie"][0].split(";")[0];
+  const department = await Department.create({ name: "Production", nameKey: "production" });
+  const password = "Staff123";
+  const passwordHash = await bcrypt.hash(password, 12);
+  async function employee(username, designation, role = "EMPLOYEE", locationType = "FACTORY") {
+    return User.create({ fullName: username, username, passwordHash, contact: "0771234567", role, designation, locationType, workLocation: "Factory 1", department: department._id });
+  }
+  const requester = await employee("requester", "Production Executive");
+  const outsider = await employee("outsider", "HR Executive");
+  const approver = await employee("approver", "Sales Manager", "MANAGER");
+  const otherApprover = await employee("other.approver", "Finance Manager", "MANAGER");
+  const assistant = await employee("assistant", "Administrative Assistant", "OPERATOR");
+  const showroom = await employee("showroom", "Production Executive", "EMPLOYEE", "SHOWROOM");
+  async function loginStaff(user) {
+    const agent = request.agent(app);
+    await agent.post("/api/transport/auth/login").send({ username: user.username, password }).expect(200);
+    return agent;
+  }
+  const owner = await loginStaff(requester), reviewer = await loginStaff(approver), booking = await loginStaff(assistant);
+  const other = await loginStaff(outsider), wrongReviewer = await loginStaff(otherApprover), store = await loginStaff(showroom);
+  const base = "/api/transport/requests";
+  const pickupAt = new Date(Date.now() + 2 * 3600000).toISOString();
+  const body = { service: "RIDE", approverId: approver.id, pickupAt, pickup: "Factory 1", destination: "Head Office", vehicle: "THREE_WHEELER", purpose: "Official sample review", justification: "Required quality review", passengers: [{ name: requester.fullName, designation: requester.designation }], officialOnly: true, requestShared: true };
+  await request(app).get(base).expect(401);
+  await owner.get("/api/super-admin/users").expect(401);
+  await owner.post(base).send(body).expect(400);
+  await owner.post("/api/transport/acknowledge").send({ acknowledged: true }).expect(200);
+  await store.post(base).send(body).expect(403);
+  await owner.post(base).send({ ...body, requesterId: outsider.id }).expect(400);
+  await owner.post(base).send({ ...body, officialOnly: false }).expect(400);
+  await owner.post(base).send({ ...body, pickupAt: new Date(Date.now() + 20 * 60000).toISOString() }).expect(400);
+  await owner.post(base).send({ ...body, vehicle: "CAR" }).expect(400);
+  await owner.post(base).send({ ...body, passengers: [] }).expect(400);
+  const submitted = await owner.post(base).send(body).expect(201);
+  const record = submitted.body.request;
+  assert.equal(record.requesterDetails.contact, requester.contact);
+  assert.equal(record.requesterDetails.department, "Production");
+  assert.equal((await other.get(base)).body.requests.length, 0);
+  assert.equal((await wrongReviewer.get(base)).body.requests.length, 0);
+  await other.get(`${base}/${record.id}/message`).expect(404);
+  await wrongReviewer.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(404);
+  await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 0, externalActionConfirmed: true, bookingReference: "TOO-EARLY" }).expect(403);
+  await reviewer.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: 0 }).expect(400);
+  await TransportRequest.updateOne({ _id: record.id }, { pickupAt: new Date(Date.now() + 10 * 60000) });
+  await reviewer.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(400);
+  await TransportRequest.updateOne({ _id: record.id }, { pickupAt: new Date(pickupAt) });
+  const approved = await reviewer.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(200);
+  assert.equal(approved.body.request.status, "APPROVED");
+  await owner.put(`${base}/${record.id}`).send({ ...body, version: 0 }).expect(409);
+  await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 1, bookingReference: "REF1" }).expect(400);
+  const booked = await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 1, bookingReference: "REF1", externalActionConfirmed: true }).expect(200);
+  assert.equal(booked.body.request.status, "BOOKED");
+  await owner.post(`${base}/${record.id}/action`).send({ action: "COMPLETE", version: 2 }).expect(400);
+  await owner.post(`${base}/${record.id}/action`).send({ action: "COMPLETE", version: 2, routeVerified: true, completionMessageChecked: true }).expect(200);
+  assert.match((await owner.get(`${base}/${record.id}/message`)).body.text, /Approved by: approver/);
+  const stats = await request(app).get("/api/super-admin/dashboard/stats").set("Cookie", adminCookie).expect(200);
+  assert.equal(stats.body.totalTransportRequests, 1); assert.equal(stats.body.completedBookings, 1);
+  assert.equal((await request(app).get("/api/super-admin/transport/requests").set("Cookie", adminCookie)).body.requests.length, 1);
+  await request(app).post(`/api/super-admin/transport/requests/${record.id}/action`).set("Cookie", adminCookie)
+    .send({ action: "COMPLETE", version: 3, routeVerified: true, completionMessageChecked: true }).expect(403);
+  const group = [...body.passengers, { name: "Person Two", designation: "Executive" }, { name: "Person Three", designation: "Executive" }];
+  await owner.post(base).send({ ...body, vehicle: "CAR", passengers: group }).expect(400);
+  await owner.post(base).send({ ...body, vehicle: "CAR", passengers: group, groupCarEligible: true }).expect(201);
+  const flash = { ...body, service: "FLASH", passengers: [], deliveryRoute: "CUSTOMER_DELIVERY", receiverName: "Receiver", receiverContact: "0771234567", itemDetails: "Fabric samples" };
+  await owner.post(base).send(flash).expect(400);
+  await owner.post(base).send({ ...flash, vehicle: "MOTORBIKE", receiverContact: "bad" }).expect(400);
+  await owner.post(base).send({ ...flash, vehicle: "MOTORBIKE" }).expect(201);
+  await User.updateOne({ _id: requester._id }, { isActive: false });
+  await owner.get(base).expect(401);
+});
+
+test("SOP changes, returns and cancellations require responsible staff and reject stale versions", async () => {
+  const department = await Department.create({ name: "Accounts", nameKey: "accounts" });
+  const passwordHash = await bcrypt.hash("Staff123", 12);
+  const common = { passwordHash, contact: "0771234567", department: department._id, locationType: "HEAD_OFFICE", workLocation: "Head Office", sopAcknowledgedAt: new Date() };
+  const ownerUser = await User.create({ ...common, fullName: "Owner", username: "owner", role: "EMPLOYEE", designation: "Accounts Executive" });
+  const approver = await User.create({ ...common, fullName: "Approver", username: "approver", role: "MANAGER", designation: "Finance Manager" });
+  const operator = await User.create({ ...common, fullName: "Assistant", username: "assistant", role: "OPERATOR", designation: "Administrative Assistant" });
+  async function agent(user) { const agent = request.agent(app); await agent.post("/api/transport/auth/login").send({ username: user.username, password: "Staff123" }).expect(200); return agent; }
+  const owner = await agent(ownerUser), reviewer = await agent(approver), assistant = await agent(operator);
+  const base = "/api/transport/requests";
+  const body = { service: "RIDE", approverId: approver.id, pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Accounts review", justification: "Official review", passengers: [{ name: "Owner", designation: "Accounts Executive" }], officialOnly: true, requestShared: true };
+  let record = (await owner.post(base).send(body).expect(201)).body.request;
+  async function act(agent, action, extra = {}) { const result = await agent.post(`${base}/${record.id}/action`).send({ action, version: record.version, ...extra }).expect(200); record = result.body.request; }
+  await act(reviewer, "RETURN", { note: "Clarify purpose" });
+  await owner.put(`${base}/${record.id}`).send({ ...body, version: 0 }).expect(409);
+  record = (await owner.put(`${base}/${record.id}`).send({ ...body, version: record.version }).expect(200)).body.request;
+  await act(reviewer, "APPROVE", { approvalShared: true });
+  await act(assistant, "BOOK", { bookingReference: "REF2", externalActionConfirmed: true });
+  await act(owner, "REPORT_ISSUE", { note: "Driver delayed; notify assistant" });
+  await act(owner, "REQUEST_CHANGE", { note: "Destination needs changing" });
+  await assistant.post(`${base}/${record.id}/action`).send({ action: "CONFIRM_CHANGE", version: record.version, note: "Resolved" }).expect(403);
+  await act(assistant, "CONFIRM_CHANGE", { externalActionConfirmed: true, note: "Old PickMe booking cancelled; resubmit" });
+  record = (await owner.put(`${base}/${record.id}`).send({ ...body, version: record.version }).expect(200)).body.request;
+  assert.equal(record.approvalSharedAt, null);
+  await act(reviewer, "APPROVE", { approvalShared: true });
+  await act(assistant, "BOOK", { bookingReference: "REF3", externalActionConfirmed: true });
+  await act(owner, "CANCEL", { note: "Meeting cancelled" });
+  assert.equal(record.status, "CANCELLATION_REQUESTED");
+  await owner.post(`${base}/${record.id}/action`).send({ action: "CONFIRM_CANCEL", version: record.version, externalActionConfirmed: true, note: "Cancel" }).expect(403);
+  await act(assistant, "CONFIRM_CANCEL", { externalActionConfirmed: true, note: "Cancelled in PickMe" });
+  assert.equal(record.status, "CANCELLED");
+  assert.ok(record.history.some((item) => item.action === "REPORT_ISSUE"));
+  await owner.post("/api/transport/auth/logout").send({}).expect(204);
+  await owner.get(base).expect(401);
 });
 
 test("all setup endpoints remain closed even after the Super Admin is deleted", async () => {

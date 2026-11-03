@@ -6,6 +6,11 @@ const userSchema = new Schema(
     username: { type: String, required: true, unique: true, lowercase: true },
     email: { type: String, required() { return this.role === "SUPER_ADMIN"; }, lowercase: true },
     contact: { type: String, trim: true, maxlength: 30 },
+    designation: { type: String, default: "" },
+    locationType: { type: String, enum: ["", "FACTORY", "HEAD_OFFICE", "SHOWROOM"], default: "" },
+    workLocation: { type: String, default: "", maxlength: 150 },
+    employeeCategory: { type: String, enum: ["EXECUTIVE_OR_BELOW", "MANAGER"], default: "EXECUTIVE_OR_BELOW" },
+    sopAcknowledgedAt: { type: Date, default: null },
     passwordHash: { type: String, required: true, select: false },
     department: { type: Schema.Types.ObjectId, ref: "Department", default: null, index: true },
     role: {
@@ -34,6 +39,34 @@ export const Role = mongoose.model("Role", new Schema({
   name: { type: String, required: true, maxlength: 100 },
   nameKey: { type: String, required: true, unique: true },
   description: { type: String, default: "", maxlength: 500 },
+}, { timestamps: true }));
+export const TransportRequest = mongoose.model("TransportRequest", new Schema({
+  requester: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+  approver: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+  requesterDetails: { type: Schema.Types.Mixed, required: true },
+  approverDetails: { type: Schema.Types.Mixed, required: true },
+  service: { type: String, enum: ["RIDE", "FLASH"], required: true },
+  pickupAt: { type: Date, required: true },
+  pickup: String,
+  stopover: String,
+  destination: String,
+  vehicle: String,
+  deliveryRoute: String,
+  groupCarEligible: { type: Boolean, default: false },
+  purpose: String,
+  justification: String,
+  passengers: [{ _id: false, name: String, designation: String }],
+  receiverName: String,
+  receiverContact: String,
+  itemDetails: String,
+  status: { type: String, default: "PENDING_APPROVAL", index: true },
+  requestSharedAt: Date,
+  approvalSharedAt: Date,
+  bookingReference: String,
+  driverDetails: String,
+  bookingRecordedBy: { type: Schema.Types.ObjectId, ref: "User" },
+  version: { type: Number, default: 0 },
+  history: [{ _id: false, action: String, actor: Schema.Types.ObjectId, actorName: String, at: Date, note: String }],
 }, { timestamps: true }));
 export const Department = mongoose.model(
   "Department",
@@ -88,6 +121,7 @@ export async function initializeDatabase() {
     AuditLog.init(),
     Department.init(),
     Role.init(),
+    TransportRequest.init(),
   ]);
   // Replace the original unique index, which permits only one user without email.
   // The partial unique index above is installed before dropping the old index.

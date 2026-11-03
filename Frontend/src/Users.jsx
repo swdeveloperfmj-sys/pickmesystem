@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import Roles from "./Roles";
+import UsersTable from "./UsersTable";
 
-const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "EMPLOYEE", status: "ACTIVE", departmentId: "" };
+const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "EMPLOYEE", status: "ACTIVE", departmentId: "", designation: "", locationType: "", workLocation: "", employeeCategory: "EXECUTIVE_OR_BELOW" };
 
 export default function Users({ refreshKey, onChanged }) {
   const [section, setSection] = useState("users");
+  const [sop, setSop] = useState({ designations: [] });
   const [availableRoles, setAvailableRoles] = useState([]);
   const roles = Object.fromEntries(availableRoles.map((role) => [role.value, role.name]));
   const [users, setUsers] = useState([]);
@@ -17,56 +19,60 @@ export default function Users({ refreshKey, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [search, setSearch] = useState("");
+  const [dialogError, setDialogError] = useState("");
+  const editor = useRef(null);
+  const deleteDialog = useRef(null);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError("");
-    Promise.all([api("/super-admin/users"), api("/super-admin/departments"), api("/super-admin/roles")])
-      .then(([people, teams, roleData]) => {
-        if (active) { setUsers(people.users); setDepartments(teams.departments); setAvailableRoles(roleData.roles); }
+    Promise.all([api("/super-admin/users"), api("/super-admin/departments"), api("/super-admin/roles"), api("/super-admin/sop")])
+      .then(([people, teams, roleData, policy]) => {
+        if (active) { setUsers(people.users); setDepartments(teams.departments); setAvailableRoles(roleData.roles); setSop(policy); }
       })
       .catch((err) => { if (active) setError(err.message); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [refreshKey]);
 
-  function reset() { setEditing(null); setForm(emptyForm); }
+  function reset() { setEditing(null); setForm(emptyForm); setDialogError(""); }
+  function closeEditor() { if (!busy) { editor.current.close(); reset(); } }
+  function create() { reset(); editor.current.showModal(); }
+  function confirmDelete(user) { setDeleting(user); setDialogError(""); deleteDialog.current.showModal(); }
+  function closeDelete() { if (!busy) { deleteDialog.current.close(); setDeleting(null); setDialogError(""); } }
   function change(event) { setForm((value) => ({ ...value, [event.target.name]: event.target.value })); }
   async function save(event) {
     event.preventDefault();
     if (busy) return;
-    setBusy(true); setError(""); setMessage("");
+    setBusy(true); setDialogError(""); setMessage("");
     const body = { ...form, departmentId: form.departmentId || null };
     if (editing && !body.password) delete body.password;
     try {
       const { user } = await api(`/super-admin/users${editing ? `/${editing}` : ""}`, body, editing ? "PUT" : "POST");
       setUsers((items) => [...items.filter((item) => item.id !== user.id), user].sort((a, b) => a.fullName.localeCompare(b.fullName)));
       setMessage(editing ? "User updated." : "User created.");
-      reset(); onChanged();
-    } catch (err) { setError(err.message); }
+      editor.current.close(); reset(); onChanged();
+    } catch (err) { setDialogError(err.message); }
     finally { setBusy(false); }
   }
   async function remove(id) {
     if (busy) return;
-    setBusy(true); setError(""); setMessage("");
+    setBusy(true); setDialogError(""); setMessage("");
     try {
       await api(`/super-admin/users/${id}`, undefined, "DELETE");
       setUsers((items) => items.filter((item) => item.id !== id));
       if (editing === id) reset();
-      setDeleting(null); setMessage("User deleted."); onChanged();
-    } catch (err) { setError(err.message); }
+      deleteDialog.current.close(); setDeleting(null); setMessage("User deleted."); onChanged();
+    } catch (err) { setDialogError(err.message); }
     finally { setBusy(false); }
   }
   function edit(user) {
     setEditing(user.id);
-    setForm({ fullName: user.fullName, username: user.username, contact: user.contact || "", password: "", role: user.role, status: user.status, departmentId: user.departmentId || "" });
+    setForm({ fullName: user.fullName, username: user.username, contact: user.contact || "", password: "", role: user.role, status: user.status, departmentId: user.departmentId || "", designation: user.designation || "", locationType: user.locationType || "", workLocation: user.workLocation || "", employeeCategory: user.employeeCategory || "EXECUTIVE_OR_BELOW" });
     setDeleting(null); setError(""); setMessage("");
-    document.getElementById("user-full-name")?.focus();
+    setDialogError(""); editor.current.showModal();
   }
-  const query = search.trim().toLowerCase();
-  const filtered = users.filter((user) => [user.fullName, user.username, user.contact, user.department?.name, roles[user.role]].some((value) => value?.toLowerCase().includes(query)));
   return (
     <section aria-label="Manage users">
       <div className="management-sections" aria-label="User Management sections">
@@ -77,14 +83,14 @@ export default function Users({ refreshKey, onChanged }) {
       {section === "roles" && <Roles roles={availableRoles} loading={loading} onCreated={(role) => setAvailableRoles((items) => [...items, role])} />}
       <div className="page-enter" hidden={section !== "users"}>
       <p className="department-status" role="status">{message}</p>
-      <div className="department-layout">
-        <section className="department-form-card">
-          <span className="eyebrow accent">YOUR PEOPLE</span>
-          <h2>{editing ? "Edit user" : "Create user"}</h2>
-          <p className="muted">Manage user details, role, and department. The Super Administrator account is protected.</p>
+      <UsersTable users={users} roles={availableRoles} departments={departments} loading={loading} busy={busy} onCreate={create} onEdit={edit} onDelete={confirmDelete} />
+      <dialog ref={editor} className="user-editor-dialog" aria-labelledby="user-editor-title" onCancel={(event) => { if (busy) event.preventDefault(); else reset(); }}>
+        <header className="user-dialog-heading"><div><span className="eyebrow accent">PEOPLE & ACCESS</span><h2 id="user-editor-title">{editing ? "Edit user" : "Create user"}</h2></div><button type="button" className="user-dialog-close" aria-label="Close user form" disabled={busy} onClick={closeEditor}>&times;</button></header>
+        <p className="muted">{editing ? "Update account details and department assignment." : "Add a team member and choose their role and department."}</p>
+        {dialogError && <div className="error" role="alert">{dialogError}</div>}
           <form onSubmit={save}>
             <label htmlFor="user-full-name">Full name
-              <input id="user-full-name" name="fullName" value={form.fullName} onChange={change} required minLength={2} maxLength={100} disabled={busy || loading} />
+              <input id="user-full-name" autoFocus name="fullName" value={form.fullName} onChange={change} required minLength={2} maxLength={100} disabled={busy || loading} />
             </label>
             <label htmlFor="user-username">Username
               <input id="user-username" name="username" value={form.username} onChange={change} required minLength={3} maxLength={40} pattern="[a-zA-Z0-9_.\-]+" autoCapitalize="none" disabled={busy || loading} />
@@ -115,36 +121,40 @@ export default function Users({ refreshKey, onChanged }) {
               </select>
             </div>
             {!loading && departments.length === 0 && <p className="muted">Create a department in Department Management to assign users to it.</p>}
-            <div className="department-actions">
+            {editing && <fieldset className="sop-profile" disabled={busy || loading}>
+              <legend>Transport profile (SOP)</legend>
+              <p className="muted">Set the actual designation and work location. These determine requesting, approval, and booking authority under the SOP.</p>
+              <div className="select-field"><label htmlFor="user-designation">Designation</label>
+                <select id="user-designation" name="designation" value={form.designation} onChange={change}>
+                  <option value="">Not configured</option>
+                  {sop.designations.map((value) => <option key={value}>{value}</option>)}
+                </select>
+              </div>
+              <div className="select-field"><label htmlFor="user-location-type">Location type</label>
+                <select id="user-location-type" name="locationType" value={form.locationType} onChange={change}>
+                  <option value="">Not configured</option><option value="FACTORY">Factory</option><option value="HEAD_OFFICE">Head Office</option><option value="SHOWROOM">Showroom</option>
+                </select>
+              </div>
+              <label htmlFor="user-work-location">Work location
+                <input id="user-work-location" name="workLocation" value={form.workLocation} onChange={change} maxLength={150} placeholder="e.g. Factory 1" />
+              </label>
+              <div className="select-field"><label htmlFor="user-category">Employee category</label>
+                <select id="user-category" name="employeeCategory" value={form.employeeCategory} onChange={change}>
+                  <option value="EXECUTIVE_OR_BELOW">Executive or below</option><option value="MANAGER">Manager</option>
+                </select>
+              </div>
+            </fieldset>}
+            <div className="user-dialog-actions">
               <button type="submit" className="primary" disabled={busy || loading}>{busy ? "Saving…" : editing ? "Save changes" : "Create user"}</button>
-              {editing && <button type="button" className="secondary" disabled={busy} onClick={reset}>Cancel edit</button>}
+              <button type="button" className="secondary" disabled={busy} onClick={closeEditor}>Cancel</button>
             </div>
           </form>
-        </section>
-        <section className="department-list" aria-label="User list" aria-busy={loading}>
-          <div className="department-list-heading"><h2>Users</h2><span className="badge">{users.length} total</span></div>
-          <label htmlFor="user-search">Search users
-            <input id="user-search" type="search" placeholder="Name, contact, role, or department" value={search} onChange={(event) => setSearch(event.target.value)} />
-          </label>
-          {loading ? <p role="status" className="muted">Loading users…</p> : filtered.length === 0 ? <p className="muted">{users.length ? "No matching users." : "No users yet. Create your first user."}</p> : filtered.map((user) => (
-            <article className="department-item" key={user.id} aria-label={user.fullName}>
-              <h3>{user.fullName}</h3>
-              <p className="muted">{user.username} · {user.contact || "No contact added"}</p>
-              <p className="muted">{roles[user.role]} · {user.status === "ACTIVE" ? "Active" : "Inactive"} · {user.department?.name || "Unassigned"}</p>
-              {deleting === user.id ? <div className="delete-confirmation">
-                <p>Delete “{user.fullName}”? This cannot be undone.</p>
-                <div className="department-actions">
-                  <button type="button" className="danger" disabled={busy} onClick={() => remove(user.id)}>{busy ? "Deleting…" : "Confirm delete"}</button>
-                  <button type="button" className="secondary" disabled={busy} onClick={() => setDeleting(null)}>Keep user</button>
-                </div>
-              </div> : <div className="department-actions">
-                <button type="button" className="secondary" disabled={busy || loading} onClick={() => edit(user)}>Edit</button>
-                <button type="button" className="danger" disabled={busy || loading} onClick={() => { setDeleting(user.id); setMessage(""); }}>Delete</button>
-              </div>}
-            </article>
-          ))}
-        </section>
-      </div>
+      </dialog>
+      <dialog ref={deleteDialog} className="logout-dialog" aria-labelledby="delete-user-title" onCancel={(event) => { if (busy) event.preventDefault(); else { setDeleting(null); setDialogError(""); } }}>
+        <span className="eyebrow accent">REMOVE USER</span><h2 id="delete-user-title">Delete user?</h2><p className="muted">Delete <strong>{deleting?.fullName}</strong>? This cannot be undone.</p>
+        {dialogError && <div className="error" role="alert">{dialogError}</div>}
+        <div className="logout-actions"><button type="button" className="secondary" autoFocus disabled={busy} onClick={closeDelete}>Keep user</button><button type="button" className="danger" disabled={busy} onClick={() => remove(deleting.id)}>{busy ? "Deleting…" : "Confirm delete"}</button></div>
+      </dialog>
       </div>
     </section>
   );

@@ -12,8 +12,10 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { z } from "zod";
-import { User, SuperAdminSetup, SetupState, AuditLog, Department, Role } from "./models.js";
+import { User, SuperAdminSetup, SetupState, AuditLog, Department, Role, TransportRequest } from "./models.js";
+import { registerTransport } from "./transport.js";
 import { isAllowedOrigin } from "./origin.js";
+import { designations, sopConfig } from "./sop.js";
 
 const registration = z
   .object({
@@ -76,6 +78,10 @@ const managedUserInput = z.object({
   role: z.string().regex(/^(ADMIN|EMPLOYEE|MANAGER|OPERATOR|CUSTOM_[a-f\d]{24})$/, "Select a valid role"),
   status: z.enum(["ACTIVE", "INACTIVE"]),
   departmentId: departmentId.nullable(),
+  designation: z.union([z.literal(""), z.enum(designations)]).default(""),
+  locationType: z.enum(["", "FACTORY", "HEAD_OFFICE", "SHOWROOM"]).default(""),
+  workLocation: z.string().trim().max(150).default(""),
+  employeeCategory: z.enum(["EXECUTIVE_OR_BELOW", "MANAGER"]).default("EXECUTIVE_OR_BELOW"),
 }).strict();
 const userPassword = z.string().min(6).refine(
   (value) => Buffer.byteLength(value, "utf8") <= 72,
@@ -92,6 +98,11 @@ const builtinRoles = [
 const publicRole = (role) => ({ value: `CUSTOM_${role.id}`, name: role.name, description: role.description, builtIn: false });
 const managedUser = (user) => ({
   ...publicUser(user),
+  designation: user.designation,
+  locationType: user.locationType,
+  workLocation: user.workLocation,
+  employeeCategory: user.employeeCategory,
+  sopAcknowledgedAt: user.sopAcknowledgedAt,
   departmentId: user.department?._id?.toString() || null,
   department: user.department ? { id: user.department.id, name: user.department.name } : null,
 });
@@ -439,6 +450,7 @@ export function createApp({ config, mailer, limits = true }) {
     res.json({ user: publicUser(user) });
   });
   app.use("/api/super-admin", requireSuperAdmin);
+  app.get("/api/super-admin/sop", (_req, res) => res.json(sopConfig));
   app.get("/api/super-admin/roles", async (_req, res) => {
     const roles = await Role.find().sort({ nameKey: 1 });
     res.json({ roles: [...builtinRoles, ...roles.map(publicRole)] });
@@ -553,20 +565,24 @@ export function createApp({ config, mailer, limits = true }) {
     res.sendStatus(204);
   });
   app.get("/api/super-admin/dashboard/stats", async (_req, res) => {
-    const [totalEmployees, totalManagers, totalDepartments] = await Promise.all([
+    const [totalEmployees, totalManagers, totalDepartments, totalTransportRequests, pendingApprovals, completedBookings] = await Promise.all([
       User.countDocuments({ role: "EMPLOYEE" }),
       User.countDocuments({ role: "MANAGER" }),
       Department.countDocuments(),
+      TransportRequest.countDocuments(),
+      TransportRequest.countDocuments({ status: "PENDING_APPROVAL" }),
+      TransportRequest.countDocuments({ status: "COMPLETED" }),
     ]);
     res.json({
       totalEmployees,
       totalManagers,
       totalDepartments,
-      totalTransportRequests: null,
-      pendingApprovals: null,
-      completedBookings: null,
+      totalTransportRequests,
+      pendingApprovals,
+      completedBookings,
     });
   });
+  registerTransport(app, { config, requireSuperAdmin });
   app.use((_req, res) =>
     res.status(404).json({ message: "Endpoint not found." }),
   );
