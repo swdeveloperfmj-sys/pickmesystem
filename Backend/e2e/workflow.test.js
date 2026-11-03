@@ -69,6 +69,43 @@ test(
       await page.waitForURL("**/super-admin/setup");
       const artifactDir = fileURLToPath(new URL("../artifacts", import.meta.url));
       await mkdir(artifactDir, { recursive: true });
+      async function checkResponsiveLayout({ navigation = false } = {}) {
+        for (const width of [320, 360, 390, 600, 768, 900, 1024]) {
+          await page.setViewportSize({ width, height: 844 });
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+            true,
+            `Page must fit a ${width}px viewport`,
+          );
+          if (navigation && width <= 900) {
+            const menu = page.getByRole("button", { name: "Navigation menu" });
+            assert.equal(await menu.getAttribute("aria-expanded"), "false");
+            const contentBefore = await page.locator(".dashboard-main").boundingBox();
+            await menu.click();
+            const contentAfter = await page.locator(".dashboard-main").boundingBox();
+            assert.equal(contentAfter.y, contentBefore.y, "Opening navigation must not move content");
+            await page.getByRole("button", { name: "Close navigation menu" }).waitFor();
+            await page.getByRole("button", { name: "System Settings", exact: true }).click();
+            await page.getByRole("heading", { name: "System Settings", exact: true, level: 1 }).waitFor();
+            assert.equal(await menu.getAttribute("aria-expanded"), "false");
+            assert.equal(
+              await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+              true,
+              `Long section names must fit a ${width}px viewport`,
+            );
+            await menu.click();
+            await page.getByRole("button", { name: "Dashboard", exact: true }).click();
+          }
+        }
+        await page.setViewportSize({ width: 1440, height: 1000 });
+      }
+      async function logout() {
+        const menu = page.getByRole("button", { name: "Navigation menu" });
+        if (await menu.isVisible() && await menu.getAttribute("aria-expanded") === "false") {
+          await menu.click();
+        }
+        await page.getByRole("button", { name: "Logout", exact: true }).click();
+      }
       const themeSwitch = page.getByRole("switch", { name: "Dark mode" });
       if (await themeSwitch.getAttribute("aria-checked") === "true") {
         await themeSwitch.click();
@@ -77,6 +114,7 @@ test(
       await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
       await page.reload();
       await page.getByRole("switch", { name: "Dark mode", checked: true }).waitFor();
+      await checkResponsiveLayout();
       await page.screenshot({ path: `${artifactDir}/setup-dark-desktop.png`, fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       await page.screenshot({ path: `${artifactDir}/setup-dark-mobile.png`, fullPage: true });
@@ -124,6 +162,7 @@ test(
         .getByRole("button", { name: "Continue to email verification" })
         .click();
       await page.waitForURL("**/super-admin/verify-email");
+      await checkResponsiveLayout();
       assert.equal(await User.countDocuments(), 0);
       assert.match(sentOtp, /^\d{6}$/);
       assert.equal(
@@ -149,9 +188,17 @@ test(
       );
       await page.getByRole("switch", { name: "Dark mode", checked: false }).click();
       await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+      await checkResponsiveLayout({ navigation: true });
       await page.screenshot({ path: `${artifactDir}/dashboard-dark-desktop.png`, fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       await page.screenshot({ path: `${artifactDir}/dashboard-dark-mobile.png`, fullPage: true });
+      await page.getByRole("button", { name: "Navigation menu" }).click();
+      await page.screenshot({ path: `${artifactDir}/navigation-mobile.png`, fullPage: true });
+      await page.keyboard.press("Escape");
+      assert.equal(await page.getByRole("button", { name: "Navigation menu" }).getAttribute("aria-expanded"), "false");
+      await page.getByRole("button", { name: "Navigation menu" }).click();
+      await page.getByRole("button", { name: "Close navigation menu" }).click({ position: { x: 380, y: 830 } });
+      assert.equal(await page.getByRole("button", { name: "Navigation menu" }).getAttribute("aria-expanded"), "false");
       await page.setViewportSize({ width: 1440, height: 1000 });
       await page.getByRole("switch", { name: "Dark mode" }).click();
       await page.waitForFunction(() => document.documentElement.dataset.theme === "light");
@@ -170,8 +217,10 @@ test(
         path: `${artifactDir}/dashboard-mobile.png`,
         fullPage: true,
       });
-      await page.getByRole("button", { name: "Logout", exact: true }).click();
+      await logout();
       await page.waitForURL("**/super-admin/login");
+      await checkResponsiveLayout();
+      await page.setViewportSize({ width: 390, height: 844 });
       await page
         .getByLabel("Username or email", { exact: true })
         .fill("alex@example.com");
@@ -186,7 +235,7 @@ test(
       await page
         .getByRole("heading", { name: "Overview", exact: true })
         .waitFor();
-      await page.getByRole("button", { name: "Logout", exact: true }).click();
+      await logout();
       await page.waitForURL("**/super-admin/login");
       await page.goto(`${config.APP_ORIGIN}/super-admin/dashboard`);
       await page.waitForURL("**/super-admin/login");

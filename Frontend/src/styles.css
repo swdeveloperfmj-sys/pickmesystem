@@ -765,203 +765,130 @@ input:focus {
   margin: 0 auto 20px;
   font-size: 13px;
 }
+/* Keep the fixed desktop navigation scrollable on short screens. */
+.sidebar-heading { flex-shrink: 0; }
+.sidebar-menu { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sidebar nav { flex: 1; min-height: 0; }
+.sidebar nav button { flex-shrink: 0; min-height: 44px; }
+.menu-toggle { display: none; }
+.menu-backdrop { display: none; }
+.sidebar-bottom { flex-shrink: 0; }
+.sidebar-bottom button { min-width: 44px; min-height: 44px; }
+.page-heading > div, .welcome-card > div { min-width: 0; }
+.dashboard-top > span, .welcome-card p, .account-card p, .error, .info p {
+  overflow-wrap: anywhere;
+}
 @media (min-width: 1600px) {
-  .auth-main {
-    padding-left: 10%;
-    padding-right: 10%;
-  }
+  .auth-main { padding-left: 10%; padding-right: 10%; }
 }
-@media (max-width: 1050px) {
-  .story {
-    padding: 35px 30px;
-    width: 35%;
-  }
-  .auth-main {
-    padding: 28px 5%;
-  }
-  .story h1 {
-    font-size: 36px;
-  }
-  .metric-grid {
-    gap: 12px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .dashboard-content {
-    padding: 30px 24px;
-  }
-  .sidebar {
-    width: 225px;
-  }
-  .dashboard-main {
-    margin-left: 225px;
-  }
-  .dashboard-top {
-    padding: 0 24px;
-  }
+@media (max-width: 1100px) {
+  .story { width: 35%; padding: 35px 30px; }
+  .story h1 { font-size: 36px; }
+  .auth-main { padding: 28px 5%; }
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .dashboard-content { padding: 30px 24px; }
+  .dashboard-top { padding: 0 24px; gap: 12px; }
+  .connection-badge { display: none; }
 }
-@media (max-width: 740px) {
-  .story {
+@media (max-width: 900px) {
+  .story { display: none; }
+  .auth-main { padding: 24px max(24px, env(safe-area-inset-right)) 24px max(24px, env(safe-area-inset-left)); min-height: 100dvh; }
+  .mobile-brand { display: block; margin-bottom: 32px; }
+  .form-wrap { padding: 32px 0; }
+  .dashboard { display: block; }
+  .sidebar { position: relative; z-index: 30; width: 100%; padding: 16px 24px; }
+  .sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .sidebar .brand { margin: 0; font-size: 21px; }
+  .sidebar .brand small { font-size: 7px; }
+  .menu-toggle {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 44px; padding: 10px 12px; border: 1px solid #30303040;
+    border-radius: 8px; background: transparent; color: #303030; font-size: 13px;
+  }
+  .menu-toggle span { font-size: 18px; }
+  .sidebar-menu {
     display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 0;
+    padding: 16px 24px 24px;
+    max-height: calc(100dvh - 80px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--gold);
+    box-shadow: 0 16px 24px #00000026;
+    border-radius: 0 0 16px 16px;
   }
-  .mobile-brand {
+  .sidebar-menu.is-open { display: flex; }
+  .menu-backdrop {
     display: block;
-    margin-bottom: 35px;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    padding: 0;
+    border: 0;
+    background: #00000055;
+    cursor: pointer;
   }
-  .auth-main {
-    padding: 24px;
-    min-height: 100vh;
-  }
-  .auth-top {
-    font-size: 8px;
-  }
-  .form-wrap {
-    padding: 35px 0;
-  }
-  .steps {
-    margin-bottom: 30px;
-  }
-  h2 {
-    font-size: 28px;
-  }
-  .sidebar {
-    width: 190px;
-    padding: 24px 10px 0;
-  }
-  .sidebar .brand {
-    font-size: 19px;
-    gap: 8px;
-    margin: 0 5px 35px;
-  }
-  .sidebar .brand-icon {
-    height: 33px;
-    width: 33px;
-    font-size: 20px;
-  }
-  .sidebar .brand small {
-    font-size: 6px;
-  }
-  .sidebar nav button {
-    font-size: 10px;
-    padding: 11px 10px;
-    gap: 8px;
-  }
-  .dashboard-main {
-    margin-left: 190px;
-  }
-  .dashboard-content {
-    padding: 30px 18px;
-  }
-  .dashboard-top {
-    padding: 0 18px;
-    gap: 10px;
-  }
-  .dashboard-top > .badge {
-    display: none;
-  }
-  .metric-grid {
-    grid-template-columns: 1fr;
-  }
-  .metric {
-    padding: 20px;
-  }
-  .welcome-card {
-    padding: 20px;
-    display: block;
-  }
-  .welcome-symbol {
-    margin-bottom: 15px;
-  }
-  .welcome-card h2 {
-    font-size: 19px;
-  }
-  .page-heading {
-    align-items: flex-start;
-  }
-  .page-heading .secondary {
-    font-size: 0;
-    padding: 10px;
-  }
-  .page-heading .secondary:first-letter {
-    font-size: 14px;
-  }
-  .page-heading h1 {
-    font-size: 25px;
-  }
-  .account-card {
-    display: block;
-  }
-  .account-card .badge {
-    display: inline-block;
-    margin-top: 15px;
-  }
+  .menu-backdrop:focus-visible { outline: none; }
+  .nav-label { margin: 0 12px 12px; }
+  .sidebar nav { flex: none; overflow: visible; }
+  .sidebar nav button { font-size: 13px; }
+  .sidebar-bottom { margin-top: 16px; padding: 16px 0 0; }
+  .dashboard-main { margin-left: 0; }
+  .dashboard-top { min-height: 68px; height: auto; padding: 12px 24px; }
+  .dashboard-top b { padding: 0 6px; }
+  .page-heading { align-items: flex-start; }
+  .page-heading h1 { font-size: 28px; }
+  .welcome-card { padding: 24px; }
 }
-@media (max-width: 480px) {
-  .field-row {
-    flex-direction: column;
-    gap: 18px;
-  }
-  .auth-top span {
-    display: none;
-  }
-  .sidebar {
-    position: static;
-    width: 100%;
-    padding: 18px;
-  }
-  .dashboard {
-    display: block;
-  }
-  .sidebar .brand {
-    margin-bottom: 20px;
-  }
-  .sidebar nav {
-    flex-direction: row;
-    overflow: auto;
-  }
-  .sidebar nav button {
-    flex-shrink: 0;
-  }
-  .nav-label {
-    display: none;
-  }
-  .sidebar-bottom {
-    padding: 18px 0 0;
-    margin-top: 15px;
-  }
-  .dashboard-main {
-    margin-left: 0;
-  }
-  .dashboard-top {
-    height: 55px;
-  }
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-  }
-  .metric {
-    padding: 15px;
-  }
-  .metric > div {
-    font-size: 10px;
-  }
-  .metric-icon {
-    display: none;
-  }
-  .metric > strong {
-    font-size: 28px;
-  }
-  .metric > small {
-    font-size: 9px;
-  }
-  .brand small {
-    font-size: 7px;
-  }
-  .page-heading .eyebrow {
-    font-size: 8px;
-  }
-  .account-card {
-    padding: 20px;
-  }
+@media (max-width: 600px) {
+  input { font-size: 16px; min-height: 48px; }
+  input::placeholder { font-size: 13px; }
+  .auth-top { font-size: 8px; letter-spacing: .7px; }
+  .auth-top .header-actions > span { display: none; }
+  .auth-main { padding: 20px; }
+  .field-row { flex-direction: column; gap: 18px; }
+  .steps { gap: 10px; margin-bottom: 28px; }
+  .steps i { flex: 1; max-width: 42px; min-width: 12px; }
+  .steps span { gap: 6px; }
+  h2 { font-size: clamp(24px, 6.5vw, 28px); letter-spacing: -.7px; }
+  .primary { min-height: 48px; gap: 12px; }
+  .password-input button { top: 2px; right: 4px; min-height: 44px; min-width: 48px; }
+  .text-button { min-height: 44px; }
+  .form-bottom a { display: inline-block; padding: 10px 4px; }
+  .sidebar { padding: 14px 20px; }
+  .dashboard-top { padding: 10px 20px; gap: 10px; }
+  .dashboard-top > span { font-size: 10px; min-width: 0; }
+  .dashboard-content { padding: 28px 20px; }
+  .page-heading { gap: 12px; }
+  .page-heading h1 { font-size: 26px; overflow-wrap: anywhere; }
+  .page-heading .eyebrow { font-size: 9px; line-height: 1.7; }
+  .page-heading .secondary { min-width: 44px; min-height: 44px; font-size: 0; padding: 10px; }
+  .page-heading .secondary:first-letter { font-size: 16px; }
+  .metric-grid { gap: 12px; }
+  .metric { padding: 16px; }
+  .metric > div { line-height: 1.5; }
+  .metric-icon { display: none; }
+  .metric > strong { font-size: 29px; }
+  .metric > small { display: block; line-height: 1.6; }
+  .welcome-card { display: block; padding: 20px; }
+  .welcome-symbol { margin-bottom: 16px; }
+  .welcome-card h2 { font-size: 21px; }
+  .account-card { display: block; padding: 20px; }
+  .account-card .badge { display: inline-block; margin-top: 16px; }
+  .empty-state { padding: 40px 20px; }
+}
+@media (max-width: 360px) {
+  .auth-main { padding: 16px; }
+  .sidebar { padding: 14px 16px; }
+  .sidebar .brand { gap: 8px; font-size: 19px; }
+  .sidebar .brand small { font-size: 6px; letter-spacing: 1.4px; }
+  .dashboard-top { padding: 10px 16px; }
+  .dashboard-content { padding: 24px 16px; }
+  .metric-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 :root[data-theme="dark"] {
@@ -990,7 +917,7 @@ input:focus {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 36px;
+  min-height: 44px;
   padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 20px;

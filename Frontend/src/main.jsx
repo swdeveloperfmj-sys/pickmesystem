@@ -495,6 +495,18 @@ function Dashboard() {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
   const [section, setSection] = useState("Dashboard");
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        document.querySelector(".menu-toggle")?.focus();
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [menuOpen]);
   async function load() {
     setError("");
     try {
@@ -530,13 +542,31 @@ function Dashboard() {
   return (
     <div className="dashboard">
       <aside className="sidebar">
-        <Brand />
+        <div className="sidebar-heading">
+          <Brand />
+          <button
+            type="button"
+            className="menu-toggle"
+            aria-label="Navigation menu"
+            aria-expanded={menuOpen}
+            aria-controls="workspace-navigation"
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            <span aria-hidden="true">{menuOpen ? "✕" : "☰"}</span>
+            {menuOpen ? "Close" : "Menu"}
+          </button>
+        </div>
+        <div className={`sidebar-menu${menuOpen ? " is-open" : ""}`} id="workspace-navigation">
         <span className="nav-label">WORKSPACE</span>
-        <nav>
+        <nav aria-label="Workspace">
           {sections.map((item, i) => (
             <button
               key={item}
-              onClick={() => setSection(item)}
+              onClick={() => {
+                setSection(item);
+                setMenuOpen(false);
+              }}
+              aria-current={section === item ? "page" : undefined}
               className={section === item ? "active" : ""}
             >
               <span aria-hidden="true">
@@ -556,7 +586,16 @@ function Dashboard() {
             ↪
           </button>
         </div>
+        </div>
       </aside>
+      {menuOpen && (
+        <button
+          type="button"
+          className="menu-backdrop"
+          aria-label="Close navigation menu"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
       <main className="dashboard-main">
         <header className="dashboard-top">
           <span>
