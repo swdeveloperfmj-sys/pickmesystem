@@ -198,6 +198,21 @@ test(
         .getByRole("heading", { name: "Overview", exact: true })
         .waitFor();
       assert.equal(await User.countDocuments({ role: "SUPER_ADMIN" }), 1);
+      const collapse = page.getByRole("button", { name: "Collapse sidebar", exact: true });
+      await collapse.click();
+      assert.equal((await page.locator(".sidebar").boundingBox()).width, 80);
+      assert.equal((await page.locator(".dashboard-main").boundingBox()).x, 80);
+      await page.getByRole("button", { name: "Department Management", exact: true }).click();
+      await page.getByRole("heading", { name: "Department Management", exact: true, level: 1 }).waitFor();
+      await page.getByRole("button", { name: "Dashboard", exact: true }).click();
+      await page.screenshot({ path: `${artifactDir}/sidebar-collapsed.png`, fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.equal((await page.locator(".sidebar").boundingBox()).width, 390);
+      await page.getByRole("button", { name: "Navigation menu" }).click();
+      await page.getByRole("button", { name: "Dashboard", exact: true }).click();
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+      assert.equal((await page.locator(".sidebar").boundingBox()).width, 252);
       assert.deepEqual(
         await page.evaluate(() => Object.entries(localStorage)),
         [["ctms-theme", "light"]],

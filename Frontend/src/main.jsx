@@ -102,7 +102,7 @@ function AuthLayout({ children, step, login = false }) {
             <ThemeToggle />
           </div>
         </div>
-        <div className="form-wrap">
+        <div className="form-wrap page-enter">
           <div className="mobile-brand">
             <Brand />
           </div>
@@ -498,6 +498,7 @@ function Dashboard() {
   const [error, setError] = useState("");
   const [section, setSection] = useState("Dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const logoutDialog = useRef(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
@@ -551,7 +552,7 @@ function Dashboard() {
       </div>
     );
   return (
-    <div className="dashboard">
+    <div className={`dashboard${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <dialog
         ref={logoutDialog}
         className="logout-dialog"
@@ -574,6 +575,21 @@ function Dashboard() {
           <Brand />
           <button
             type="button"
+            className="sidebar-toggle"
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!sidebarCollapsed}
+            aria-controls="workspace-navigation"
+            onClick={() => setSidebarCollapsed((value) => !value)}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="3" />
+              <path d="M9 4v16" />
+              <path d={sidebarCollapsed ? "m13 9 3 3-3 3" : "m16 9-3 3 3 3"} />
+            </svg>
+          </button>
+          <button
+            type="button"
             className="menu-toggle"
             aria-label="Navigation menu"
             aria-expanded={menuOpen}
@@ -590,6 +606,8 @@ function Dashboard() {
           {sections.map((item, i) => (
             <button
               key={item}
+              aria-label={item}
+              title={item}
               onClick={() => {
                 setSection(item);
                 setMenuOpen(false);
@@ -600,7 +618,7 @@ function Dashboard() {
               <span aria-hidden="true">
                 {["▦", "♙", "▤", "♧", "⇄", "☑", "▣", "▥", "◷", "⚙"][i]}
               </span>
-              {item}
+              <span className="nav-text">{item}</span>
             </button>
           ))}
         </nav>
@@ -637,7 +655,7 @@ function Dashboard() {
             <ThemeToggle />
           </div>
         </header>
-        <div className="dashboard-content">
+        <div className="dashboard-content page-enter" key={section}>
           <div className="page-heading">
             <div>
               <span className="eyebrow accent">YOUR WORKSPACE AT A GLANCE</span>

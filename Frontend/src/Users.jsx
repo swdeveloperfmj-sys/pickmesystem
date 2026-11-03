@@ -75,7 +75,7 @@ export default function Users({ refreshKey, onChanged }) {
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       {section === "roles" && <Roles roles={availableRoles} loading={loading} onCreated={(role) => setAvailableRoles((items) => [...items, role])} />}
-      <div hidden={section !== "users"}>
+      <div className="page-enter" hidden={section !== "users"}>
       <p className="department-status" role="status">{message}</p>
       <div className="department-layout">
         <section className="department-form-card">

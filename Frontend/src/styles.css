@@ -28,6 +28,14 @@
 * {
   box-sizing: border-box;
 }
+@keyframes page-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.page-enter { animation: page-fade-in 280ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .page-enter { animation: none; }
+}
 body {
   margin: 0;
 }
@@ -542,6 +550,27 @@ input:focus {
   width: 20px;
   font-size: 17px;
 }
+.sidebar nav button .nav-text { width: auto; min-width: 0; font-size: inherit; flex-shrink: 1; }
+.sidebar-toggle { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 1px solid #30303024; border-radius: 10px; background: #ffffff26; color: #303030; transition: background .15s, border-color .15s; }
+.sidebar-toggle:hover { background: #ffffff60; border-color: #30303050; }
+.sidebar-toggle:focus-visible { outline: 2px solid #303030; outline-offset: 3px; }
+@media (min-width: 901px) {
+  .sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 36px; }
+  .sidebar .brand { min-width: 0; margin: 0; font-size: 20px; gap: 9px; }
+  .sidebar .brand small { font-size: 7px; letter-spacing: 1.3px; }
+  .sidebar-collapsed .sidebar-heading { flex-direction: column; gap: 14px; margin-bottom: 24px; }
+  .sidebar-collapsed .sidebar { width: 80px; padding-left: 12px; padding-right: 12px; }
+  .sidebar-collapsed .dashboard-main { margin-left: 80px; }
+  .sidebar-collapsed .sidebar .brand { justify-content: center; margin: 0; }
+  .sidebar-collapsed .sidebar .brand > span:last-child,
+  .sidebar-collapsed .nav-label,
+  .sidebar-collapsed .sidebar nav button .nav-text,
+  .sidebar-collapsed .sidebar-bottom > div { display: none; }
+  .sidebar-collapsed .sidebar nav button { justify-content: center; padding: 12px; gap: 0; }
+  .sidebar-collapsed .sidebar-bottom { flex-direction: column; padding: 20px 0; gap: 12px; }
+  .sidebar-collapsed .sidebar-bottom button { margin-left: 0; }
+}
+@media (max-width: 900px) { .sidebar-toggle { display: none; } }
 .sidebar nav button:hover {
   background: #ffffff30;
 }

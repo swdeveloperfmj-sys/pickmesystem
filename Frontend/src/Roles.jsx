@@ -20,7 +20,7 @@ export default function Roles({ roles, loading, onCreated }) {
     finally { setBusy(false); }
   }
   return (
-    <section aria-label="Manage roles">
+    <section className="page-enter" aria-label="Manage roles">
       {error && <div className="error" role="alert">{error}</div>}
       <p role="status" className="department-status">{message}</p>
       <div className="department-layout">
