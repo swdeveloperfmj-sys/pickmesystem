@@ -14,7 +14,7 @@ const text = z.string().trim().min(2).max(500);
 const contact = z.string().trim().max(30).regex(/^\+?[\d\s().-]+$/).refine((value) => { const count = value.replace(/\D/g, "").length; return count >= 7 && count <= 15; });
 const requestInput = z.object({
   service: z.enum(["RIDE", "FLASH"]), approverId: id,
-  requesterDesignation: text, requesterContact: contact, departmentId: id, workLocation: text, approverDesignation: text,
+  requesterDesignation: z.string().trim().max(100).default(""), requesterContact: contact, departmentId: id, workLocation: text, approverDesignation: text,
   passengerCount: z.number().int().min(0).max(10),
   pickupAt: z.iso.datetime({ offset: true }), pickup: text, stopover: z.string().trim().max(500).default(""), destination: text,
   vehicle: z.enum(sopConfig.vehicles), deliveryRoute: z.enum(["BETWEEN_FACTORIES", "CUSTOMER_DELIVERY", "OTHER"]).default("OTHER"),
@@ -108,13 +108,13 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     if (!canRequest(user)) fail(403, "Sign in with your staff account to submit your own request.");
     if (!user.sopAcknowledgedAt) fail(400, "Read and acknowledge the SOP before requesting transport.");
     const data = requestInput.parse(req.body);
-    const department = await Department.findById(data.departmentId);
-    if (!department) fail(400, "Select an existing department.");
+    const department = user.department ? await Department.findById(user.department) : null;
+    if (!department) fail(400, "Your account must have an assigned department before requesting transport.");
     notice(data.pickupAt);
     const approver = await User.findById(data.approverId);
     if (!active(approver) || !canApprove(approver) || approver.id === user.id || approver.role === "SUPER_ADMIN") fail(400, "Select an active authorized approver.");
     if (data.service === "RIDE") {
-      if (!data.passengers.length || !data.passengers.some((person) => person.name.toLowerCase() === user.fullName.toLowerCase() && person.designation === data.requesterDesignation)) fail(400, "Ride passenger details must include you with your designation.");
+      if (!data.passengers.length || !data.passengers.some((person) => person.name.toLowerCase() === user.fullName.toLowerCase())) fail(400, "Ride passenger details must include you.");
       if (data.passengerCount !== data.passengers.length) fail(400, "Passenger count must match the listed passengers.");
       if (new Set(data.passengers.map((person) => person.name.toLowerCase())).size !== data.passengers.length) fail(400, "List each passenger once.");
     } else {
@@ -125,7 +125,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     if (!eligible.includes(data.vehicle)) fail(400, `Annexure B permits: ${eligible.join(", ")} for this request.`);
     const { approverId, officialOnly, requestShared, version, requesterDesignation, requesterContact, departmentId, workLocation, approverDesignation, ...details } = data;
     const values = { ...details, pickupAt: new Date(data.pickupAt), requester: user._id, approver: approver._id,
-      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: requesterDesignation, contact: requesterContact, departmentId: department.id, department: department.name, workLocation }, approverDetails: { fullName: approver.fullName, designation: approverDesignation },
+      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: "", contact: requesterContact, departmentId: department.id, department: department.name, workLocation }, approverDetails: { fullName: approver.fullName, designation: approverDesignation },
       status: "PENDING_APPROVAL", requestSharedAt: new Date(), approvalSharedAt: null, bookingReference: "", driverDetails: "", bookingRecordedBy: null };
     let record;
     if (update) {
