@@ -526,7 +526,7 @@ export function createApp({ config, mailer, limits = true }) {
   app.put("/api/super-admin/budget", async (req, res) => {
     const { creditLimit } = z.object({ creditLimit: z.number().finite().min(0).max(1000000000000) }).strict().parse(req.body);
     const allocated = await Department.aggregate([{ $group: { _id: null, total: { $sum: "$budget" } } }]);
-    if ((allocated[0]?.total || 0) > creditLimit) throw new ApiError(400, "Credit limit cannot be lower than the total department budgets.");
+    if ((allocated[0]?.total || 0) > creditLimit) throw new ApiError(400, "Weekly credit limit cannot be lower than the total weekly department budgets.");
     const settings = await OrganizationBudget.findByIdAndUpdate("organization", { $set: { creditLimit } }, { upsert: true, returnDocument: "after", setDefaultsOnInsert: true });
     res.json({ creditLimit: settings.creditLimit });
   });
@@ -535,7 +535,7 @@ export function createApp({ config, mailer, limits = true }) {
     const data = departmentInput.parse(req.body);
     const credit = await OrganizationBudget.findById("organization");
     const allocated = await Department.aggregate([{ $match: update ? { _id: { $ne: new mongoose.Types.ObjectId(id) } } : {} }, { $group: { _id: null, total: { $sum: "$budget" } } }]);
-    if ((allocated[0]?.total || 0) + data.budget > (credit?.creditLimit || 0)) throw new ApiError(400, "Department budgets cannot exceed the overall credit limit. Set the overall credit limit first.");
+    if ((allocated[0]?.total || 0) + data.budget > (credit?.creditLimit || 0)) throw new ApiError(400, "Weekly department budgets cannot exceed the overall weekly credit limit. Set the overall weekly credit limit first.");
     const values = { ...data, nameKey: data.name.toLowerCase() };
     let department;
     try {

@@ -37,7 +37,7 @@ export default function Departments({ refreshKey, onChanged }) {
     setCreditBusy(true); setError(""); setMessage("");
     try {
       const result = await api("/super-admin/budget", { creditLimit: Number(creditInput) }, "PUT");
-      setCreditLimit(result.creditLimit); setCreditInput(String(result.creditLimit)); setMessage("Overall credit limit updated.");
+      setCreditLimit(result.creditLimit); setCreditInput(String(result.creditLimit)); setMessage("Overall weekly credit limit updated.");
     } catch (err) { setError(err.message); }
     finally { setCreditBusy(false); }
   }
@@ -100,17 +100,17 @@ export default function Departments({ refreshKey, onChanged }) {
     <section className="departments" aria-label="Manage departments">
       {error && <div role="alert" className="error">{error}</div>}
       <p role="status" className="department-status">{message}</p>
-      <section className="department-form-card" aria-label="Overall transport credit limit">
+      <section className="department-form-card" aria-label="Overall weekly transport credit limit">
         <span className="eyebrow accent">TRANSPORT BUDGET</span>
-        <h2>Overall credit limit</h2>
-        <p className="muted">Department budgets are assigned from this organization-wide LKR limit.</p>
+        <h2>Overall weekly credit limit</h2>
+        <p className="muted">Set the total transport credit available each week. Department budgets are assigned from this LKR limit.</p>
         <form onSubmit={saveCreditLimit} className="department-actions">
-          <label htmlFor="overall-credit-limit">Credit limit (LKR)
+          <label htmlFor="overall-credit-limit">Weekly credit limit (LKR)
             <input id="overall-credit-limit" type="number" min="0" step="0.01" required value={creditInput} onChange={(event) => setCreditInput(event.target.value)} disabled={creditBusy || loading} />
           </label>
-          <button className="primary" type="submit" disabled={creditBusy || loading}>{creditBusy ? "Saving…" : "Save credit limit"}</button>
+          <button className="primary" type="submit" disabled={creditBusy || loading}>{creditBusy ? "Saving…" : "Save weekly limit"}</button>
         </form>
-        <p className="muted">Assigned to departments: LKR {departments.reduce((sum, item) => sum + (item.budget || 0), 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })} / LKR {creditLimit.toLocaleString("en-LK", { minimumFractionDigits: 2 })}</p>
+        <p className="muted">Weekly department allocation: LKR {departments.reduce((sum, item) => sum + (item.budget || 0), 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })} / LKR {creditLimit.toLocaleString("en-LK", { minimumFractionDigits: 2 })}</p>
       </section>
       <div className="department-layout">
         <section className="department-form-card">
@@ -128,7 +128,7 @@ export default function Departments({ refreshKey, onChanged }) {
                 placeholder="What does this department do?" value={form.description} disabled={busy || loading}
                 onChange={(event) => setForm({ ...form, description: event.target.value })} />
             </label>
-            <label htmlFor="department-budget">Department budget (LKR)
+            <label htmlFor="department-budget">Department weekly budget (LKR)
               <input id="department-budget" type="number" min="0" step="0.01" required value={form.budget} disabled={busy || loading}
                 onChange={(event) => setForm({ ...form, budget: Number(event.target.value) })} />
             </label>
@@ -151,7 +151,7 @@ export default function Departments({ refreshKey, onChanged }) {
               <article className="department-item" key={department.id} aria-label={department.name}>
                 <h3>{department.name}</h3>
                 <p className="muted department-description">{department.description || "No description added."}</p>
-                <p><strong>Budget:</strong> LKR {(department.budget || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}</p>
+                <p><strong>Weekly budget:</strong> LKR {(department.budget || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}</p>
                 {deleting === department.id ? (
                   <div className="delete-confirmation">
                     <p>Delete “{department.name}”? This cannot be undone.</p>
