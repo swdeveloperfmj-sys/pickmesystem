@@ -14,14 +14,13 @@ const text = z.string().trim().min(2).max(500);
 const contact = z.string().trim().max(30).regex(/^\+?[\d\s().-]+$/).refine((value) => { const count = value.replace(/\D/g, "").length; return count >= 7 && count <= 15; });
 const requestInput = z.object({
   service: z.enum(["RIDE", "FLASH"]), approverId: id,
-  requesterDesignation: text, requesterContact: contact, departmentId: id, workLocation: text, approverDesignation: text,
+  requesterDesignation: z.string().trim().max(100).default(""), requesterContact: contact, departmentId: id, workLocation: text, approverDesignation: text,
   passengerCount: z.number().int().min(0).max(10),
   pickupAt: z.iso.datetime({ offset: true }), pickup: text, stopover: z.string().trim().max(500).default(""), destination: text,
   vehicle: z.enum(sopConfig.vehicles), deliveryRoute: z.enum(["BETWEEN_FACTORIES", "CUSTOMER_DELIVERY", "OTHER"]).default("OTHER"),
-  purpose: text, justification: text,
+  purpose: text, justification: z.string().trim().max(500).default(""),
   passengers: z.array(z.object({ name: text, designation: text }).strict()).max(10).default([]),
   receiverName: z.string().trim().max(100).default(""), receiverContact: z.string().trim().max(30).default(""), itemDetails: z.string().trim().max(500).default(""),
-  officialOnly: z.literal(true), requestShared: z.literal(true),
   groupCarEligible: z.boolean().default(false),
   version: z.number().int().min(0).optional(),
 }).strict();
@@ -44,7 +43,7 @@ function whatsapp(record) {
     `Requester: ${person.fullName} | ${person.designation} | ${person.contact}`, `Department: ${person.department}`, `Location: ${person.workLocation}`,
     `Approver: ${record.approverDetails.fullName} | ${record.approverDetails.designation}`, `Pickup: ${time} (Sri Lanka)`,
     `Pickup location: ${record.pickup}`, `Stopover: ${record.stopover || "None"}`, `Destination: ${record.destination}`, `Vehicle: ${record.vehicle.replaceAll("_", " ")}`,
-    `Official purpose: ${record.purpose}`, `Justification: ${record.justification}`];
+    `Official purpose / justification: ${record.purpose || record.justification}`];
   if (record.service === "RIDE") rows.push(`Passengers (${record.passengers.length}): ${record.passengers.map((person) => `${person.name} (${person.designation})`).join(", ")}`);
   else rows.push(`Receiver: ${record.receiverName} | ${record.receiverContact}`, `Items/samples: ${record.itemDetails}`);
   if (record.approvalSharedAt) rows.push(`Approved by: ${record.approverDetails.fullName}`, `Approval recorded: ${record.approvalSharedAt.toISOString()}`);
@@ -108,13 +107,13 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     if (!canRequest(user)) fail(403, "Sign in with your staff account to submit your own request.");
     if (!user.sopAcknowledgedAt) fail(400, "Read and acknowledge the SOP before requesting transport.");
     const data = requestInput.parse(req.body);
-    const department = await Department.findById(data.departmentId);
-    if (!department) fail(400, "Select an existing department.");
+    const department = user.department ? await Department.findById(user.department) : null;
+    if (!department) fail(400, "Your account must have an assigned department before requesting transport.");
     notice(data.pickupAt);
     const approver = await User.findById(data.approverId);
     if (!active(approver) || !canApprove(approver) || approver.id === user.id || approver.role === "SUPER_ADMIN") fail(400, "Select an active authorized approver.");
     if (data.service === "RIDE") {
-      if (!data.passengers.length || !data.passengers.some((person) => person.name.toLowerCase() === user.fullName.toLowerCase() && person.designation === data.requesterDesignation)) fail(400, "Ride passenger details must include you with your designation.");
+      if (!data.passengers.length || !data.passengers.some((person) => person.name.toLowerCase() === user.fullName.toLowerCase())) fail(400, "Ride passenger details must include you.");
       if (data.passengerCount !== data.passengers.length) fail(400, "Passenger count must match the listed passengers.");
       if (new Set(data.passengers.map((person) => person.name.toLowerCase())).size !== data.passengers.length) fail(400, "List each passenger once.");
     } else {
@@ -123,17 +122,17 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     }
     const eligible = eligibleVehicles({ ...data, category: ["MANAGER", "ADMIN"].includes(user.role) ? "MANAGER" : "EXECUTIVE_OR_BELOW" });
     if (!eligible.includes(data.vehicle)) fail(400, `Annexure B permits: ${eligible.join(", ")} for this request.`);
-    const { approverId, officialOnly, requestShared, version, requesterDesignation, requesterContact, departmentId, workLocation, approverDesignation, ...details } = data;
+    const { approverId, version, requesterDesignation, requesterContact, departmentId, workLocation, approverDesignation, ...details } = data;
     const values = { ...details, pickupAt: new Date(data.pickupAt), requester: user._id, approver: approver._id,
-      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: requesterDesignation, contact: requesterContact, departmentId: department.id, department: department.name, workLocation }, approverDetails: { fullName: approver.fullName, designation: approverDesignation },
-      status: "PENDING_APPROVAL", requestSharedAt: new Date(), approvalSharedAt: null, bookingReference: "", driverDetails: "", bookingRecordedBy: null };
+      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: "", contact: requesterContact, departmentId: department.id, department: department.name, workLocation }, approverDetails: { fullName: approver.fullName, designation: approverDesignation },
+      status: "PENDING_APPROVAL", requestSharedAt: null, approvalSharedAt: null, bookingReference: "", driverDetails: "", bookingRecordedBy: null };
     let record;
     if (update) {
       if (version === undefined) fail(400, "A request version is required when editing. Refresh first.");
       record = await TransportRequest.findOneAndUpdate({ _id: id.parse(req.params.id), requester: user._id, version, status: { $in: ["PENDING_APPROVAL", "RETURNED", "REJECTED"] } },
         { $set: values, $inc: { version: 1 }, $push: { history: event(user, "RESUBMITTED") } }, { returnDocument: "after" });
       if (!record) fail(409, "This request cannot be edited now. Refresh its status.");
-    } else record = await TransportRequest.create({ ...values, history: [event(user, "SUBMITTED", "Requester confirms official purpose and request shared in WhatsApp.")] });
+    } else record = await TransportRequest.create({ ...values, history: [event(user, "SUBMITTED", "Request submitted.")] });
     res.status(update ? 200 : 201).json({ request: publicRequest(record) });
   }
   router.post("/requests", (req, res) => submit(req, res, false));

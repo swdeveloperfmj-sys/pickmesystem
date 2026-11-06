@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "./api";
 
-const emptyForm = { name: "", description: "" };
+const emptyForm = { name: "", description: "", budget: 0 };
 
 export default function Departments({ refreshKey, onChanged }) {
   const [departments, setDepartments] = useState([]);
@@ -12,13 +12,16 @@ export default function Departments({ refreshKey, onChanged }) {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [form, setForm] = useState(emptyForm);
+  const [creditLimit, setCreditLimit] = useState(0);
+  const [creditInput, setCreditInput] = useState("0");
+  const [creditBusy, setCreditBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError("");
-    api("/super-admin/departments")
-      .then((data) => { if (active) setDepartments(data.departments); })
+    Promise.all([api("/super-admin/departments"), api("/super-admin/budget")])
+      .then(([data, budget]) => { if (active) { setDepartments(data.departments); setCreditLimit(budget.creditLimit); setCreditInput(String(budget.creditLimit)); } })
       .catch((err) => { if (active) setError(err.message); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -27,6 +30,16 @@ export default function Departments({ refreshKey, onChanged }) {
   function reset() {
     setEditing(null);
     setForm(emptyForm);
+  }
+
+  async function saveCreditLimit(event) {
+    event.preventDefault();
+    setCreditBusy(true); setError(""); setMessage("");
+    try {
+      const result = await api("/super-admin/budget", { creditLimit: Number(creditInput) }, "PUT");
+      setCreditLimit(result.creditLimit); setCreditInput(String(result.creditLimit)); setMessage("Overall weekly credit limit updated.");
+    } catch (err) { setError(err.message); }
+    finally { setCreditBusy(false); }
   }
 
   async function save(event) {
@@ -76,7 +89,7 @@ export default function Departments({ refreshKey, onChanged }) {
 
   function edit(department) {
     setEditing(department.id);
-    setForm({ name: department.name, description: department.description });
+    setForm({ name: department.name, description: department.description, budget: department.budget || 0 });
     setDeleting(null);
     setError("");
     setMessage("");
@@ -87,6 +100,18 @@ export default function Departments({ refreshKey, onChanged }) {
     <section className="departments" aria-label="Manage departments">
       {error && <div role="alert" className="error">{error}</div>}
       <p role="status" className="department-status">{message}</p>
+      <section className="department-form-card" aria-label="Overall weekly transport credit limit">
+        <span className="eyebrow accent">TRANSPORT BUDGET</span>
+        <h2>Overall weekly credit limit</h2>
+        <p className="muted">Set the total transport credit available each week. Department budgets are assigned from this LKR limit.</p>
+        <form onSubmit={saveCreditLimit} className="department-actions">
+          <label htmlFor="overall-credit-limit">Weekly credit limit (LKR)
+            <input id="overall-credit-limit" type="number" min="0" step="0.01" required value={creditInput} onChange={(event) => setCreditInput(event.target.value)} disabled={creditBusy || loading} />
+          </label>
+          <button className="primary" type="submit" disabled={creditBusy || loading}>{creditBusy ? "Saving…" : "Save weekly limit"}</button>
+        </form>
+        <p className="muted">Weekly department allocation: LKR {departments.reduce((sum, item) => sum + (item.budget || 0), 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })} / LKR {creditLimit.toLocaleString("en-LK", { minimumFractionDigits: 2 })}</p>
+      </section>
       <div className="department-layout">
         <section className="department-form-card">
           <span className="eyebrow accent">ORGANIZE YOUR WORKSPACE</span>
@@ -102,6 +127,10 @@ export default function Departments({ refreshKey, onChanged }) {
               <textarea id="department-description" maxLength={500} rows={4}
                 placeholder="What does this department do?" value={form.description} disabled={busy || loading}
                 onChange={(event) => setForm({ ...form, description: event.target.value })} />
+            </label>
+            <label htmlFor="department-budget">Department weekly budget (LKR)
+              <input id="department-budget" type="number" min="0" step="0.01" required value={form.budget} disabled={busy || loading}
+                onChange={(event) => setForm({ ...form, budget: Number(event.target.value) })} />
             </label>
             <div className="department-actions">
               <button className="primary" disabled={busy || loading} type="submit">
@@ -122,6 +151,7 @@ export default function Departments({ refreshKey, onChanged }) {
               <article className="department-item" key={department.id} aria-label={department.name}>
                 <h3>{department.name}</h3>
                 <p className="muted department-description">{department.description || "No description added."}</p>
+                <p><strong>Weekly budget:</strong> LKR {(department.budget || 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })}</p>
                 {deleting === department.id ? (
                   <div className="delete-confirmation">
                     <p>Delete “{department.name}”? This cannot be undone.</p>

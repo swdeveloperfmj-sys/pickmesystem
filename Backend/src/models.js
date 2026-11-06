@@ -77,11 +77,16 @@ export const Department = mongoose.model(
       name: { type: String, required: true, trim: true, maxlength: 100 },
       nameKey: { type: String, required: true, unique: true },
       description: { type: String, default: "", maxlength: 500 },
+      budget: { type: Number, min: 0, default: 0 },
       assignmentVersion: { type: Number, default: 0, select: false },
     },
     { timestamps: true },
   ),
 );
+export const OrganizationBudget = mongoose.model("OrganizationBudget", new Schema({
+  _id: String,
+  creditLimit: { type: Number, min: 0, default: 0 },
+}, { timestamps: true }));
 export const SuperAdminSetup = mongoose.model(
   "SuperAdminSetup",
   new Schema(
