@@ -19,7 +19,7 @@ const requestInput = z.object({
   pickupAt: z.iso.datetime({ offset: true }), pickup: text, stopover: z.string().trim().max(500).default(""), destination: text,
   vehicle: z.enum(sopConfig.vehicles), deliveryRoute: z.enum(["BETWEEN_FACTORIES", "CUSTOMER_DELIVERY", "OTHER"]).default("OTHER"),
   purpose: text, justification: z.string().trim().max(500).default(""),
-  passengers: z.array(z.object({ name: text, designation: text }).strict()).max(10).default([]),
+  passengers: z.array(z.object({ name: text, designation: z.string().trim().max(100).default("") }).strict()).max(10).default([]),
   receiverName: z.string().trim().max(100).default(""), receiverContact: z.string().trim().max(30).default(""), itemDetails: z.string().trim().max(500).default(""),
   groupCarEligible: z.boolean().default(false),
   version: z.number().int().min(0).optional(),
