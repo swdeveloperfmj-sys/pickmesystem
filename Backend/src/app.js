@@ -12,7 +12,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { z } from "zod";
-import { User, SuperAdminSetup, SetupState, AuditLog, Department, Role, TransportRequest, OrganizationBudget } from "./models.js";
+import { User, SuperAdminSetup, SetupState, AuditLog, Department, Company, Role, TransportRequest, OrganizationBudget } from "./models.js";
 import { registerTransport } from "./transport.js";
 import { isAllowedOrigin } from "./origin.js";
 import { sopConfig } from "./sop.js";
@@ -513,6 +513,37 @@ export function createApp({ config, mailer, limits = true }) {
     const id = departmentId.parse(req.params.id);
     const user = await User.findOneAndDelete({ _id: id, role: { $ne: "SUPER_ADMIN" } });
     if (!user) throw new ApiError(404, "User not found or protected Super Administrator account.");
+    res.sendStatus(204);
+  });
+  const companyInput = z.object({
+    name: z.string().trim().min(2).max(100).regex(/^[^<>\p{Cc}]+$/u),
+    description: z.string().trim().max(500).default(""),
+  }).strict();
+  const publicCompany = (company) => ({ id: company.id, name: company.name, description: company.description });
+  app.get("/api/super-admin/companies", async (_req, res) => {
+    res.json({ companies: (await Company.find().sort({ nameKey: 1 })).map(publicCompany) });
+  });
+  async function saveCompany(req, res, update) {
+    const id = update ? departmentId.parse(req.params.id) : undefined;
+    const data = companyInput.parse(req.body);
+    const values = { ...data, nameKey: data.name.toLowerCase() };
+    let company;
+    try {
+      company = update
+        ? await Company.findByIdAndUpdate(id, { $set: values }, { returnDocument: "after", runValidators: true })
+        : await Company.create(values);
+    } catch (error) {
+      if (error.code === 11000) throw new ApiError(409, "A company with this name already exists.");
+      throw error;
+    }
+    if (!company) throw new ApiError(404, "Company not found.");
+    res.status(update ? 200 : 201).json({ company: publicCompany(company) });
+  }
+  app.post("/api/super-admin/companies", (req, res) => saveCompany(req, res, false));
+  app.put("/api/super-admin/companies/:id", (req, res) => saveCompany(req, res, true));
+  app.delete("/api/super-admin/companies/:id", async (req, res) => {
+    const id = departmentId.parse(req.params.id);
+    if (!await Company.findByIdAndDelete(id)) throw new ApiError(404, "Company not found.");
     res.sendStatus(204);
   });
   app.get("/api/super-admin/departments", async (_req, res) => {

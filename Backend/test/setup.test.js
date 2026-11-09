@@ -12,6 +12,7 @@ import {
   SetupState,
   AuditLog,
   Department,
+  Company,
   Role,
   TransportRequest,
   initializeDatabase,
@@ -60,6 +61,7 @@ after(async () => {
 beforeEach(async () => {
   await Promise.all([
     User.deleteMany({}),
+    Company.deleteMany({}),
     SuperAdminSetup.deleteMany({}),
     SetupState.deleteMany({}),
     AuditLog.deleteMany({}),
@@ -146,6 +148,33 @@ test("full setup, single-use code, authenticated dashboard, logout, and username
     1,
   );
 });
+test("company CRUD is protected, validated, unique and persistent", async () => {
+  const base = "/api/super-admin/companies";
+  const missingId = new mongoose.Types.ObjectId().toString();
+  await request(app).get(base).expect(401);
+  await request(app).post(base).send({ name: "Acme" }).expect(401);
+  await request(app).put(`${base}/${missingId}`).send({ name: "Acme" }).expect(401);
+  await request(app).delete(`${base}/${missingId}`).expect(401);
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const created = await request(app).post(base).set("Cookie", cookie).send({ name: " Acme ", description: "Main office" }).expect(201);
+  const id = created.body.company.id;
+  assert.equal(created.body.company.name, "Acme");
+  await request(app).post(base).set("Cookie", cookie).send({ name: "acme" }).expect(409);
+  for (const body of [{ name: "x" }, { name: "Valid", description: "x".repeat(501) }, { name: "Valid", role: "ADMIN" }]) {
+    await request(app).post(base).set("Cookie", cookie).send(body).expect(400);
+  }
+  await request(app).put(`${base}/${id}`).set("Cookie", cookie).send({ name: "Acme Group", description: "Updated" }).expect(200);
+  assert.equal((await Company.findById(id)).name, "Acme Group");
+  const list = await request(app).get(base).set("Cookie", cookie).expect(200);
+  assert.deepEqual(list.body.companies.map((item) => item.name), ["Acme Group"]);
+  await request(app).delete(`${base}/bad-id`).set("Cookie", cookie).expect(400);
+  await request(app).put(`${base}/${missingId}`).set("Cookie", cookie).send({ name: "Valid" }).expect(404);
+  await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(204);
+  await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(404);
+  assert.equal(await Company.countDocuments(), 0);
+});
+
 test("department CRUD is protected, validated, unique, persistent, and reflected in dashboard totals", async () => {
   const base = "/api/super-admin/departments";
   const missingId = new mongoose.Types.ObjectId().toString();

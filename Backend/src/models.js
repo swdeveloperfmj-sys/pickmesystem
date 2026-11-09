@@ -83,6 +83,11 @@ export const Department = mongoose.model(
     { timestamps: true },
   ),
 );
+export const Company = mongoose.model("Company", new Schema({
+  name: { type: String, required: true, trim: true, maxlength: 100 },
+  nameKey: { type: String, required: true, unique: true },
+  description: { type: String, default: "", maxlength: 500 },
+}, { timestamps: true }));
 export const OrganizationBudget = mongoose.model("OrganizationBudget", new Schema({
   _id: String,
   creditLimit: { type: Number, min: 0, default: 0 },
@@ -127,6 +132,7 @@ export async function initializeDatabase() {
     SetupState.init(),
     AuditLog.init(),
     Department.init(),
+    Company.init(),
     Role.init(),
     TransportRequest.init(),
   ]);

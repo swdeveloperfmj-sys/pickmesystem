@@ -1011,6 +1011,47 @@ input:focus {
 
 .department-status { color: var(--accent-text); font-size: 13px; }
 .department-status:empty { display: none; }
+.departments [hidden] { display: none !important; }
+.departments .company-budget { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, .85fr); gap: 6px 28px; margin-bottom: 20px; padding: 20px 24px; }
+.company-budget > .eyebrow, .company-budget > h2, .company-budget > p { grid-column: 1; margin: 0; }
+.company-budget > h2 { margin: 4px 0; font-size: 18px; }
+.company-budget > p { font-size: 12px; }
+.company-budget-form { grid-column: 2; grid-row: 1 / span 4; display: flex; flex-direction: row; align-items: end; gap: 10px; }
+.company-budget-form label { flex: 1; min-width: 0; margin: 0; }
+.company-budget-form button { min-height: 45px; white-space: nowrap; }
+.department-title { display: flex; align-items: center; gap: 12px; }
+.compact-departments .department-list-heading { margin-bottom: 16px; }
+.compact-departments .department-list-heading h2 { margin: 0; }
+.department-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.department-toolbar input { max-width: 320px; margin: 0; }
+.department-toolbar span { font-size: 12px; }
+.department-toolbar strong { color: var(--text); margin-left: 8px; }
+.department-columns, .department-row { display: grid; grid-template-columns: minmax(0, 1fr) 180px 145px; gap: 20px; align-items: center; }
+.department-columns { padding: 10px 0; color: var(--muted); font-size: 11px; font-weight: 650; }
+.compact-departments .department-row { padding: 12px 0; }
+.department-row h3 { margin: 0; font-size: 14px; }
+.department-row .department-description { margin: 3px 0 0; font-size: 12px; white-space: normal; }
+.department-row-budget { margin: 0; font-variant-numeric: tabular-nums; font-size: 13px; }
+.department-row .department-actions { gap: 6px; }
+.department-row .department-actions button { min-height: 36px; padding: 8px 12px; }
+.department-row-confirmation { grid-column: 1 / -1; }
+.company-row { grid-template-columns: minmax(0, 1fr) 145px; }
+.department-editor h2 { font-size: 22px; margin: 0; }
+.user-editor-dialog.department-editor form { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) {
+  .departments .company-budget { grid-template-columns: minmax(0, 1fr); }
+  .company-budget-form { grid-column: 1; grid-row: auto; margin: 10px 0; }
+}
+@media (max-width: 600px) {
+  .compact-departments .department-list-heading { align-items: flex-start; flex-direction: column; }
+  .department-columns { display: none; }
+  .department-row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+  .department-row > .department-actions { grid-column: 1 / -1; }
+  .department-row-budget::before { content: "LKR "; }
+  .department-toolbar input { max-width: none; }
+  .company-budget-form { flex-wrap: wrap; }
+  .company-budget-form label { flex-basis: 100%; }
+}
 .department-layout { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 1.5fr); gap: 24px; align-items: start; }
 .department-form-card, .department-list { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; min-width: 0; }
 .department-form-card h2, .department-list h2 { font-size: 21px; letter-spacing: -.5px; margin: 12px 0; }

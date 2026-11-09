@@ -268,6 +268,7 @@ test(
         await page.getByRole("button", { name, exact: true }).click();
       }
       await selectSection("Department Management");
+      await page.getByRole("button", { name: "+ Create department", exact: true }).click();
       await page.getByLabel("Department name", { exact: true }).fill("Human Resources");
       await page.getByLabel("Description (optional)", { exact: true }).fill("People and culture");
       await page.getByRole("button", { name: "Create department", exact: true }).click();
@@ -287,6 +288,22 @@ test(
       await page.getByRole("switch", { name: "Dark mode" }).click();
       await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
       await page.screenshot({ path: `${artifactDir}/departments-dark-mobile.png`, fullPage: true });
+      await page.getByRole("button", { name: "Companies", exact: true }).click();
+      await page.getByRole("button", { name: "+ Create company", exact: true }).click();
+      await page.getByLabel("Company name", { exact: true }).fill("Acme Holdings");
+      await page.getByRole("button", { name: "Create company", exact: true }).click();
+      const company = page.getByRole("article", { name: "Acme Holdings", exact: true });
+      await company.getByRole("button", { name: "Edit", exact: true }).click();
+      await page.getByLabel("Company name", { exact: true }).fill("Acme Group");
+      await page.getByRole("button", { name: "Save changes", exact: true }).click();
+      const updatedCompany = page.getByRole("article", { name: "Acme Group", exact: true });
+      await updatedCompany.waitFor();
+      await checkResponsiveLayout();
+      await updatedCompany.getByRole("button", { name: "Delete", exact: true }).click();
+      await updatedCompany.getByRole("button", { name: "Confirm delete", exact: true }).click();
+      await page.getByText("Company deleted.", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Departments", exact: true }).click();
+      await page.getByRole("button", { name: "+ Create department", exact: true }).click();
       await page.getByLabel("Department name", { exact: true }).fill("Finance");
       await page.getByRole("button", { name: "Create department", exact: true }).click();
       await page.getByText("Department created.", { exact: true }).waitFor();
