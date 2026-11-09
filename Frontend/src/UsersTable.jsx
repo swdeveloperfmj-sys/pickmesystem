@@ -1,6 +1,20 @@
 import React, { useState } from "react";
 
-export default function UsersTable({ users, roles, departments, loading, busy, onCreate, onEdit, onDelete }) {
+export default function UsersTable({
+  users,
+  roles,
+  departments,
+  loading,
+  busy,
+  onCreate,
+  onEdit,
+  onDelete,
+  heading = "Team tree",
+  description = "Explore your team by department and role.",
+  addLabel = "Add user",
+  emptyTitle,
+  emptyDescription,
+}) {
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("");
   const [department, setDepartment] = useState("");
@@ -26,15 +40,15 @@ export default function UsersTable({ users, roles, departments, loading, busy, o
   const initials = (name) => name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const renderPerson = (user) => <article className="tree-person" key={user.id}>
     <span className="user-avatar" aria-hidden="true">{initials(user.fullName)}</span>
-    <div className="tree-person-details"><strong title={user.fullName}>{user.fullName}</strong><span>@{user.username} · {user.contact || "No contact added"}</span><div className="tree-person-tags"><span className={`user-status-chip ${user.status === "ACTIVE" ? "is-active" : "is-inactive"}`}><i aria-hidden="true" />{user.status === "ACTIVE" ? "Active" : "Inactive"}</span><span className="user-sop">SOP {user.sopAcknowledgedAt ? "acknowledged" : "pending"}</span></div></div>
+    <div className="tree-person-details"><strong title={user.fullName}>{user.fullName}</strong><span>@{user.username} · {user.contact || "No contact added"}</span>{(user.departments?.length || user.department || user.companies?.length || user.company || user.locations?.length || user.location) && <span>{[...(user.departments || (user.department ? [user.department] : [])).map((item) => item.name), ...(user.companies || (user.company ? [user.company] : [])).map((item) => item.name), ...(user.locations || (user.location ? [user.location] : [])).map((item) => item.name)].join(" · ")}</span>}<div className="tree-person-tags"><span className={`user-status-chip ${user.status === "ACTIVE" ? "is-active" : "is-inactive"}`}><i aria-hidden="true" />{user.status === "ACTIVE" ? "Active" : "Inactive"}</span><span className="user-sop">SOP {user.sopAcknowledgedAt ? "acknowledged" : "pending"}</span></div></div>
     <div className="user-row-actions"><button type="button" className="user-edit" disabled={busy} onClick={() => onEdit(user)}>Edit</button><button type="button" className="user-delete" disabled={busy} onClick={() => onDelete(user)}>Delete</button></div>
   </article>;
   function clearFilters() { setSearch(""); setRole(""); setDepartment(""); setStatus(""); setPage(1); }
 
   return <section className="user-directory" aria-label="User list" aria-busy={loading}>
     <header className="user-directory-heading">
-      <div><span className="eyebrow accent">PEOPLE & ACCESS</span><h2>Team tree <span className="user-total">{users.length}</span></h2><p>Explore your team by department and role.</p></div>
-      <button type="button" className="primary user-add" disabled={loading || busy || !roles.length} onClick={onCreate}><span aria-hidden="true">+</span> Add user</button>
+      <div><span className="eyebrow accent">PEOPLE & ACCESS</span><h2>{heading} <span className="user-total">{users.length}</span></h2><p>{description}</p></div>
+      <button type="button" className="primary user-add" disabled={loading || busy || !roles.length} onClick={onCreate}><span aria-hidden="true">+</span> {addLabel}</button>
     </header>
     <div className="user-table-toolbar">
       <label className="user-search" htmlFor="user-search">Search users
@@ -45,7 +59,7 @@ export default function UsersTable({ users, roles, departments, loading, busy, o
       <div className="select-field"><label htmlFor="filter-status">Filter by status</label><select id="filter-status" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="">All statuses</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select></div>
     </div>
     <div className="user-tree" aria-label="Users grouped by department">
-      {loading ? <p className="user-tree-empty" role="status">Loading users…</p> : visible.length === 0 ? <div className="user-tree-empty"><strong>{users.length ? "No matching users" : "Your team starts here"}</strong><p>{users.length ? "Try another search or clear your filters." : "Add your first user to manage their access and department."}</p>{users.length > 0 && <button className="secondary" onClick={clearFilters}>Clear filters</button>}</div> : <>
+      {loading ? <p className="user-tree-empty" role="status">Loading users…</p> : visible.length === 0 ? <div className="user-tree-empty"><strong>{users.length ? "No matching users" : emptyTitle || "Your team starts here"}</strong><p>{users.length ? "Try another search or clear your filters." : emptyDescription || "Add your first user to manage their access and department."}</p>{users.length > 0 && <button className="secondary" onClick={clearFilters}>Clear filters</button>}</div> : <>
         <div className="tree-root"><span aria-hidden="true">✦</span><div><strong>Organization</strong><small>{visible.length} {visible.length === 1 ? "team member" : "team members"}</small></div></div>
         <div className="tree-branches">{grouped.map((team) => <section className="tree-branch" key={team.id}>
           <div className="tree-department"><span className="tree-node-icon" aria-hidden="true">▦</span><div><strong>{team.name}</strong><small>{team.people.length} {team.people.length === 1 ? "member" : "members"}</small></div></div>

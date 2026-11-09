@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import Companies from "./Companies";
-import Locations from "./Locations";
 
 const emptyForm = { name: "", description: "", budget: 0 };
 
@@ -119,12 +118,10 @@ export default function Departments({ refreshKey, onChanged }) {
       <div className="management-sections" aria-label="Organization sections">
         <button type="button" aria-pressed={section === "departments"} onClick={() => setSection("departments")}>Departments</button>
         <button type="button" aria-pressed={section === "company"} onClick={() => setSection("company")}>Companies</button>
-        <button type="button" aria-pressed={section === "locations"} onClick={() => setSection("locations")}>Location</button>
       </div>
       {error && <div role="alert" className="error">{error}</div>}
       <p role="status" className="department-status">{message}</p>
       <div hidden={section !== "company"}><Companies refreshKey={refreshKey} /></div>
-      <div hidden={section !== "locations"}><Locations refreshKey={refreshKey} /></div>
       <section hidden={section !== "departments"} className="department-form-card company-budget" aria-label="Overall weekly transport credit limit">
         <span className="eyebrow accent">TRANSPORT BUDGET</span>
         <h2>Overall weekly credit limit</h2>

@@ -306,6 +306,85 @@ test("user CRUD validates roles, credentials and department links while protecti
   assert.equal(await User.countDocuments({ role: "SUPER_ADMIN" }), 1);
 });
 
+test("approver users can select multiple departments, companies, and locations and retain their assignments", async () => {
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const departments = await Department.create([
+    { name: "Finance", nameKey: "finance" },
+    { name: "Operations", nameKey: "operations" },
+  ]);
+  const companies = await Company.create([
+    { name: "Acme", nameKey: "acme" },
+    { name: "Northwind", nameKey: "northwind" },
+  ]);
+  const locations = await Location.create([
+    { name: "Head Office", nameKey: "head office" },
+    { name: "Factory", nameKey: "factory" },
+  ]);
+  const role = await Role.create({ name: "Approver", nameKey: "approver" });
+  const base = {
+    fullName: "Alex Approver",
+    username: "alex.approver",
+    contact: "0771234567",
+    password: "Approver123",
+    role: `CUSTOM_${role.id}`,
+    status: "ACTIVE",
+    sidebarAccess: ["DASHBOARD", "APPROVALS"],
+    departmentId: departments[0].id,
+    departmentIds: departments.map((department) => department.id),
+    companyIds: companies.map((company) => company.id),
+    locationIds: locations.map((location) => location.id),
+  };
+  await request(app).post("/api/super-admin/users").set("Cookie", cookie)
+    .send({ ...base, departmentId: null, departmentIds: [], companyIds: [], locationIds: [] }).expect(400);
+  await request(app).post("/api/super-admin/users").set("Cookie", cookie)
+    .send({ ...base, companyIds: [new mongoose.Types.ObjectId().toString()] }).expect(400);
+  const created = await request(app).post("/api/super-admin/users").set("Cookie", cookie)
+    .send(base).expect(201);
+  const { user } = created.body;
+  assert.equal(user.department.name, departments[0].name);
+  assert.deepEqual(user.departments.map((department) => department.name).sort(), ["Finance", "Operations"]);
+  assert.deepEqual(user.companies.map((company) => company.name).sort(), ["Acme", "Northwind"]);
+  assert.deepEqual(user.locations.map((location) => location.name).sort(), ["Factory", "Head Office"]);
+  const listed = await request(app).get("/api/super-admin/users").set("Cookie", cookie).expect(200);
+  assert.deepEqual(listed.body.users[0].departmentIds.sort(), departments.map((department) => department.id).sort());
+  assert.deepEqual(listed.body.users[0].companyIds.sort(), companies.map((company) => company.id).sort());
+  assert.deepEqual(listed.body.users[0].locationIds.sort(), locations.map((location) => location.id).sort());
+  for (const department of departments) {
+    await request(app).delete(`/api/super-admin/departments/${department.id}`).set("Cookie", cookie).expect(409);
+  }
+  await request(app).delete(`/api/super-admin/companies/${companies[0].id}`).set("Cookie", cookie).expect(409);
+  await request(app).delete(`/api/super-admin/locations/${locations[0].id}`).set("Cookie", cookie).expect(409);
+  const updated = await request(app).put(`/api/super-admin/users/${user.id}`).set("Cookie", cookie)
+    .send({
+      ...base,
+      password: undefined,
+      departmentIds: [],
+      companyIds: [],
+      locationIds: [],
+    }).expect(400);
+  assert.equal(updated.body.message, "Approver users must have at least one department, company, and location assigned.");
+  await request(app).put(`/api/super-admin/users/${user.id}`).set("Cookie", cookie)
+    .send({
+      ...base,
+      password: undefined,
+      sidebarAccess: ["DASHBOARD"],
+      departmentId: null,
+      departmentIds: [],
+      companyIds: [],
+      locationIds: [],
+    }).expect(200);
+  for (const company of companies) {
+    await request(app).delete(`/api/super-admin/companies/${company.id}`).set("Cookie", cookie).expect(204);
+  }
+  for (const location of locations) {
+    await request(app).delete(`/api/super-admin/locations/${location.id}`).set("Cookie", cookie).expect(204);
+  }
+  for (const department of departments) {
+    await request(app).delete(`/api/super-admin/departments/${department.id}`).set("Cookie", cookie).expect(204);
+  }
+});
+
 test("legacy email index migration allows multiple users without emails and retains email uniqueness", async () => {
   await User.collection.createIndex({ email: 1 }, { name: "email_1", unique: true });
   await initializeDatabase();
@@ -486,10 +565,18 @@ test("Super Admin sidebar grants persist, control staff actions, and revoke acce
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
   const base = "/api/super-admin/users";
   const team = await Department.create({ name: "Transport", nameKey: "transport" });
+  const company = await Company.create({ name: "Transport Co", nameKey: "transport co" });
+  const location = await Location.create({ name: "Main Office", nameKey: "main office" });
   const staffRole = await Role.create({ name: "Transport Staff", nameKey: "transport staff" });
   const account = (username, sidebarAccess) => ({ fullName: username, username, contact: "0771234567", password: "Staff123", role: `CUSTOM_${staffRole.id}`, status: "ACTIVE", departmentId: null, sidebarAccess });
   const ownerData = account("access.owner", ["DASHBOARD", "REQUESTS", "REPORTS"]);
-  const reviewerData = account("access.approver", ["DASHBOARD"]);
+  const reviewerData = {
+    ...account("access.approver", ["DASHBOARD"]),
+    departmentId: team.id,
+    departmentIds: [team.id],
+    companyIds: [company.id],
+    locationIds: [location.id],
+  };
   const bookerData = account("access.booker", ["DASHBOARD"]);
   const create = async (data) => (await request(app).post(base).set("Cookie", cookie).send(data).expect(201)).body.user;
   const ownerUser = await create(ownerData), reviewerUser = await create(reviewerData), bookerUser = await create(bookerData);

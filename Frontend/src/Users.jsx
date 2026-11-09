@@ -4,7 +4,8 @@ import Roles from "./Roles";
 import UsersTable from "./UsersTable";
 import { staffModules, defaultAccess } from "./access";
 
-const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "", status: "ACTIVE", departmentId: "", sidebarAccess: defaultAccess("") };
+const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "", status: "ACTIVE", sidebarAccess: defaultAccess("") };
+const emptyAssignments = { departmentIds: [], companyIds: [], locationIds: [] };
 const legacyRoleNames = { ADMIN: "Admin (legacy)", EMPLOYEE: "Employee (legacy)", MANAGER: "Manager (legacy)", OPERATOR: "Operator (legacy)" };
 
 export default function Users({ refreshKey, onChanged }) {
@@ -12,7 +13,9 @@ export default function Users({ refreshKey, onChanged }) {
   const [availableRoles, setAvailableRoles] = useState([]);
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [form, setForm] = useState(emptyForm);
+  const [companies, setCompanies] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [form, setForm] = useState(() => ({ ...emptyForm, ...emptyAssignments }));
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -27,24 +30,45 @@ export default function Users({ refreshKey, onChanged }) {
     let active = true;
     setLoading(true);
     setError("");
-    Promise.all([api("/super-admin/users"), api("/super-admin/departments"), api("/super-admin/roles")])
-      .then(([people, teams, roleData]) => {
-        if (active) { setUsers(people.users); setDepartments(teams.departments); setAvailableRoles(roleData.roles); }
+    Promise.all([
+      api("/super-admin/users"),
+      api("/super-admin/departments"),
+      api("/super-admin/roles"),
+      api("/super-admin/companies"),
+      api("/super-admin/locations"),
+    ])
+      .then(([people, teams, roleData, companyData, locationData]) => {
+        if (active) {
+          setUsers(people.users);
+          setDepartments(teams.departments);
+          setAvailableRoles(roleData.roles);
+          setCompanies(companyData.companies);
+          setLocations(locationData.locations);
+        }
       })
       .catch((err) => { if (active) setError(err.message); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [refreshKey]);
 
-  function reset() { setEditing(null); setForm(emptyForm); setDialogError(""); }
+  function reset() { setEditing(null); setForm({ ...emptyForm, ...emptyAssignments }); setDialogError(""); }
   function closeEditor() { if (!busy) { editor.current.close(); reset(); } }
-  function create() {
+  function create(approver = false) {
     if (!availableRoles.length) {
       setError("Create a role before adding users.");
       return;
     }
     setError("");
-    setForm({ ...emptyForm, role: availableRoles[0].value });
+    const role = availableRoles[0].value;
+    setForm({
+      ...emptyForm,
+      ...emptyAssignments,
+      role,
+      sidebarAccess: [...new Set([
+        ...defaultAccess(role),
+        ...(approver ? ["APPROVALS"] : []),
+      ])],
+    });
     setEditing(null);
     setDialogError("");
     editor.current.showModal();
@@ -52,12 +76,23 @@ export default function Users({ refreshKey, onChanged }) {
   function confirmDelete(user) { setDeleting(user); setDialogError(""); deleteDialog.current.showModal(); }
   function closeDelete() { if (!busy) { deleteDialog.current.close(); setDeleting(null); setDialogError(""); } }
   function change(event) { const { name, value } = event.target; setForm((current) => ({ ...current, [name]: value })); }
+  function toggleAssignment(field, id) {
+    setForm((current) => ({
+      ...current,
+      [field]: current[field].includes(id)
+        ? current[field].filter((item) => item !== id)
+        : [...current[field], id],
+    }));
+  }
   function toggleAccess(key) { setForm((current) => ({ ...current, sidebarAccess: current.sidebarAccess.includes(key) ? current.sidebarAccess.filter((item) => item !== key) : [...current.sidebarAccess, key] })); }
   async function save(event) {
     event.preventDefault();
     if (busy) return;
     setBusy(true); setDialogError(""); setMessage("");
-    const body = { ...form, departmentId: form.departmentId || null };
+    const body = {
+      ...form,
+      departmentId: form.departmentIds[0] || null,
+    };
     if (editing && !body.password) delete body.password;
     try {
       const { user } = await api(`/super-admin/users${editing ? `/${editing}` : ""}`, body, editing ? "PUT" : "POST");
@@ -80,30 +115,62 @@ export default function Users({ refreshKey, onChanged }) {
   }
   function edit(user) {
     setEditing(user.id);
-    setForm({ fullName: user.fullName, username: user.username, contact: user.contact || "", password: "", role: user.role, status: user.status, departmentId: user.departmentId || "", sidebarAccess: user.sidebarAccess ?? defaultAccess(user.role) });
+    setForm({
+      fullName: user.fullName,
+      username: user.username,
+      contact: user.contact || "",
+      password: "",
+      role: user.role,
+      status: user.status,
+      departmentIds: user.departmentIds || (user.departmentId ? [user.departmentId] : []),
+      companyIds: user.companyIds || (user.companyId ? [user.companyId] : []),
+      locationIds: user.locationIds || (user.locationId ? [user.locationId] : []),
+      sidebarAccess: user.sidebarAccess ?? defaultAccess(user.role),
+    });
     setDeleting(null); setError(""); setMessage("");
     setDialogError(""); editor.current.showModal();
   }
+  const approverUsers = users.filter((user) =>
+    (user.sidebarAccess ?? defaultAccess(user.role)).includes("APPROVALS"),
+  );
+  const directoryRoles = [
+    ...availableRoles,
+    ...Object.entries(legacyRoleNames)
+      .filter(([value]) => users.some((user) => user.role === value))
+      .map(([value, name]) => ({ value, name })),
+  ];
+  const assignmentsRequired = form.sidebarAccess.includes("APPROVALS");
   return (
     <section aria-label="Manage users">
       <div className="management-sections" aria-label="User Management sections">
         <button type="button" aria-pressed={section === "users"} disabled={busy} onClick={() => setSection("users")}>Users</button>
+        <button type="button" aria-pressed={section === "approvers"} disabled={busy} onClick={() => setSection("approvers")}>Approver user</button>
         <button type="button" aria-pressed={section === "roles"} disabled={busy} onClick={() => setSection("roles")}>Roles</button>
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       {section === "roles" && <Roles roles={availableRoles} loading={loading} onChanged={setAvailableRoles} />}
-      <div className="page-enter" hidden={section !== "users"}>
+      <div className="page-enter" hidden={section !== "users" && section !== "approvers"}>
       <p className="department-status" role="status">{message}</p>
       {availableRoles.length === 0 && !loading && <p className="info">Create a role in the Roles section before adding users.</p>}
-      <UsersTable users={users} roles={[
-        ...availableRoles,
-        ...Object.entries(legacyRoleNames)
-          .filter(([value]) => users.some((user) => user.role === value))
-          .map(([value, name]) => ({ value, name })),
-      ]} departments={departments} loading={loading} busy={busy} onCreate={create} onEdit={edit} onDelete={confirmDelete} />
+      <UsersTable
+        key={section}
+        users={section === "approvers" ? approverUsers : users}
+        roles={directoryRoles}
+        departments={departments}
+        loading={loading}
+        busy={busy}
+        onCreate={() => create(section === "approvers")}
+        onEdit={edit}
+        onDelete={confirmDelete}
+        heading={section === "approvers" ? "Approver users" : "Team tree"}
+        description={section === "approvers" ? "Users with approval access who can review assigned transport requests." : "Explore your team by department and role."}
+        addLabel={section === "approvers" ? "Add approver user" : "Add user"}
+        emptyTitle={section === "approvers" ? "No approver users yet" : undefined}
+        emptyDescription={section === "approvers" ? "Add an approver user to give them approval access." : undefined}
+      />
       <dialog ref={editor} className="user-editor-dialog" aria-labelledby="user-editor-title" onCancel={(event) => { if (busy) event.preventDefault(); else reset(); }}>
         <header className="user-dialog-heading"><div><span className="eyebrow accent">PEOPLE & ACCESS</span><h2 id="user-editor-title">{editing ? "Edit user" : "Create user"}</h2></div><button type="button" className="user-dialog-close" aria-label="Close user form" disabled={busy} onClick={closeEditor}>&times;</button></header>
-        <p className="muted">{editing ? "Update account details and department assignment." : "Add a team member and choose their role and department."}</p>
+        <p className="muted">{editing ? "Update account details, organization and department assignment." : "Add a team member and choose their role and organization."}</p>
         {dialogError && <div className="error" role="alert">{dialogError}</div>}
           <form onSubmit={save}>
             <label htmlFor="user-full-name">Full name
@@ -133,13 +200,37 @@ export default function Users({ refreshKey, onChanged }) {
                 </select>
               </div>
             </div>
-            <div className="select-field"><label htmlFor="user-department">Department</label>
-              <select id="user-department" name="departmentId" value={form.departmentId} onChange={change} disabled={busy || loading}>
-                <option value="">Unassigned</option>
-                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-              </select>
-            </div>
-            {!loading && departments.length === 0 && <p className="muted">Create a department in Department Management to assign users to it.</p>}
+            <fieldset className="user-assignment" disabled={busy || loading}>
+              <legend>Departments{assignmentsRequired ? " *" : ""}</legend>
+              <p className="muted">Select all departments this user belongs to. The first selected department is used as the primary department.</p>
+              {departments.length ? <div className="assignment-options">
+                {departments.map((department) => <label className="assignment-option" key={department.id}>
+                  <input type="checkbox" checked={form.departmentIds.includes(department.id)} onChange={() => toggleAssignment("departmentIds", department.id)} />
+                  <span>{department.name}</span>
+                </label>)}
+              </div> : <p className="muted">Create a department in Department Management first.</p>}
+            </fieldset>
+            <fieldset className="user-assignment" disabled={busy || loading}>
+              <legend>Companies{assignmentsRequired ? " *" : ""}</legend>
+              <p className="muted">Select all companies this user can approve requests for.</p>
+              {companies.length ? <div className="assignment-options">
+                {companies.map((company) => <label className="assignment-option" key={company.id}>
+                  <input type="checkbox" checked={form.companyIds.includes(company.id)} onChange={() => toggleAssignment("companyIds", company.id)} />
+                  <span>{company.name}</span>
+                </label>)}
+              </div> : <p className="muted">Create a company in Department Management first.</p>}
+            </fieldset>
+            <fieldset className="user-assignment" disabled={busy || loading}>
+              <legend>Locations{assignmentsRequired ? " *" : ""}</legend>
+              <p className="muted">Select all locations this user can approve requests for.</p>
+              {locations.length ? <div className="assignment-options">
+                {locations.map((location) => <label className="assignment-option" key={location.id}>
+                  <input type="checkbox" checked={form.locationIds.includes(location.id)} onChange={() => toggleAssignment("locationIds", location.id)} />
+                  <span>{location.name}</span>
+                </label>)}
+              </div> : <p className="muted">Create a location in Department Management first.</p>}
+            </fieldset>
+            {assignmentsRequired && (!form.departmentIds.length || !form.companyIds.length || !form.locationIds.length) && <p className="info">Select at least one department, company, and location for an approver user.</p>}
             <fieldset className="user-access" disabled={busy || loading}>
               <legend>Sidebar access</legend>
               <p className="muted">Choose the sections this user can open. Approval and booking access also allow the actions described below.</p>

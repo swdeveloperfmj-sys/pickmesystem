@@ -85,6 +85,9 @@ const managedUserInput = z.object({
   role: z.string().regex(/^(ADMIN|EMPLOYEE|MANAGER|OPERATOR|CUSTOM_[a-f\d]{24})$/, "Select a valid role"),
   status: z.enum(["ACTIVE", "INACTIVE"]),
   departmentId: departmentId.nullable(),
+  departmentIds: z.array(departmentId).refine((ids) => new Set(ids).size === ids.length, "Select each department once").optional(),
+  companyIds: z.array(departmentId).refine((ids) => new Set(ids).size === ids.length, "Select each company once").optional(),
+  locationIds: z.array(departmentId).refine((ids) => new Set(ids).size === ids.length, "Select each location once").optional(),
   sidebarAccess: z.array(z.enum(staffModules)).max(staffModules.length).refine((items) => new Set(items).size === items.length, "Select each section once").optional(),
 }).strict();
 const userPassword = z.string().min(6).refine(
@@ -104,6 +107,12 @@ const managedUser = (user) => ({
   sopAcknowledgedAt: user.sopAcknowledgedAt,
   departmentId: user.department?._id?.toString() || null,
   department: user.department ? { id: user.department.id, name: user.department.name } : null,
+  departmentIds: (user.departments?.length ? user.departments : user.department ? [user.department] : []).map((department) => department._id?.toString() || department.id),
+  departments: (user.departments?.length ? user.departments : user.department ? [user.department] : []).map((department) => ({ id: department.id, name: department.name })),
+  companyIds: (user.companies?.length ? user.companies : user.company ? [user.company] : []).map((company) => company._id?.toString() || company.id),
+  companies: (user.companies?.length ? user.companies : user.company ? [user.company] : []).map((company) => ({ id: company.id, name: company.name })),
+  locationIds: (user.locations?.length ? user.locations : user.location ? [user.location] : []).map((location) => location._id?.toString() || location.id),
+  locations: (user.locations?.length ? user.locations : user.location ? [user.location] : []).map((location) => ({ id: location.id, name: location.name })),
 });
 const publicDepartment = (department) => ({
   id: department.id,
@@ -490,17 +499,51 @@ export function createApp({ config, mailer, limits = true }) {
   });
   app.get("/api/super-admin/users", async (_req, res) => {
     const users = await User.find({ role: { $ne: "SUPER_ADMIN" } })
-      .populate("department", "name").sort({ fullName: 1, _id: 1 });
+      .populate("department", "name")
+      .populate("departments", "name")
+      .populate("company", "name")
+      .populate("location", "name")
+      .populate("companies", "name")
+      .populate("locations", "name")
+      .sort({ fullName: 1, _id: 1 });
     res.json({ users: users.map(managedUser) });
   });
   async function saveUser(req, res, update) {
     const id = update ? departmentId.parse(req.params.id) : undefined;
     const data = (update ? updateUserInput : createUserInput).parse(req.body);
-    const { password, departmentId: assignedId, ...fields } = data;
+    const {
+      password,
+      departmentId: requestedDepartmentId,
+      departmentIds: requestedDepartmentIds,
+      companyIds: requestedCompanyIds,
+      locationIds: requestedLocationIds,
+      ...fields
+    } = data;
     const passwordHash = password ? await bcrypt.hash(password, 12) : undefined;
     let saved;
     try {
       await mongoose.connection.transaction(async (session) => {
+        const currentUser = update
+          ? await User.findOne({ _id: id, role: { $ne: "SUPER_ADMIN" } }).session(session)
+          : null;
+        if (update && !currentUser) throw new ApiError(404, "User not found or protected Super Administrator account.");
+        const departmentIds = requestedDepartmentIds ?? (requestedDepartmentId
+          ? [requestedDepartmentId]
+          : requestedDepartmentId === null
+            ? []
+            : currentUser?.departments?.length
+              ? currentUser.departments.map(String)
+              : currentUser?.department ? [String(currentUser.department)] : []);
+        const companyIds = requestedCompanyIds ?? (currentUser?.companies?.length
+          ? currentUser.companies.map(String)
+          : currentUser?.company ? [String(currentUser.company)] : []);
+        const locationIds = requestedLocationIds ?? (currentUser?.locations?.length
+          ? currentUser.locations.map(String)
+          : currentUser?.location ? [String(currentUser.location)] : []);
+        const becomesApprover = (fields.sidebarAccess ?? (currentUser && sidebarAccess(currentUser)) ?? []).includes("APPROVALS");
+        if (becomesApprover && (!departmentIds.length || !companyIds.length || !locationIds.length)) {
+          throw new ApiError(400, "Approver users must have at least one department, company, and location assigned.");
+        }
         if (fields.role.startsWith("CUSTOM_")) {
           if (!(await Role.findByIdAndUpdate(fields.role.slice(7),
             { $inc: { assignmentVersion: 1 } }, { session }))) {
@@ -509,13 +552,32 @@ export function createApp({ config, mailer, limits = true }) {
         } else if (!update || !(await User.exists({ _id: id, role: fields.role }).session(session))) {
           throw new ApiError(400, "Select a current custom role.");
         }
-        // Lock the department document so assignment cannot race its deletion.
-        if (assignedId) {
-          const department = await Department.findByIdAndUpdate(assignedId,
+        // Lock selected department documents so assignment cannot race their deletion.
+        for (const departmentId of departmentIds) {
+          const department = await Department.findByIdAndUpdate(departmentId,
             { $inc: { assignmentVersion: 1 } }, { session });
-          if (!department) throw new ApiError(400, "Selected department no longer exists. Refresh the department list.");
+          if (!department) throw new ApiError(400, "A selected department no longer exists. Refresh the department list.");
         }
-        const values = { ...fields, department: assignedId, isActive: fields.status === "ACTIVE" };
+        for (const companyId of companyIds) {
+          if (!(await Company.findByIdAndUpdate(companyId, { $inc: { assignmentVersion: 1 } }, { session }))) {
+            throw new ApiError(400, "A selected company no longer exists. Refresh the company list.");
+          }
+        }
+        for (const locationId of locationIds) {
+          if (!(await Location.findByIdAndUpdate(locationId, { $inc: { assignmentVersion: 1 } }, { session }))) {
+            throw new ApiError(400, "A selected location no longer exists. Refresh the location list.");
+          }
+        }
+        const values = {
+          ...fields,
+          department: departmentIds[0] || null,
+          departments: departmentIds,
+          company: null,
+          location: null,
+          companies: companyIds,
+          locations: locationIds,
+          isActive: fields.status === "ACTIVE",
+        };
         if (passwordHash) values.passwordHash = passwordHash;
         if (update) {
           saved = await User.findOneAndUpdate({ _id: id, role: { $ne: "SUPER_ADMIN" } },
@@ -529,7 +591,14 @@ export function createApp({ config, mailer, limits = true }) {
       if (error.code === 11000) throw new ApiError(409, "Username is already in use.");
       throw error;
     }
-    await saved.populate("department", "name");
+    await saved.populate([
+      { path: "department", select: "name" },
+      { path: "departments", select: "name" },
+      { path: "company", select: "name" },
+      { path: "location", select: "name" },
+      { path: "companies", select: "name" },
+      { path: "locations", select: "name" },
+    ]);
     res.status(update ? 200 : 201).json({ user: managedUser(saved) });
   }
   app.post("/api/super-admin/users", (req, res) => saveUser(req, res, false));
@@ -568,7 +637,14 @@ export function createApp({ config, mailer, limits = true }) {
   app.put("/api/super-admin/companies/:id", (req, res) => saveCompany(req, res, true));
   app.delete("/api/super-admin/companies/:id", async (req, res) => {
     const id = departmentId.parse(req.params.id);
-    if (!await Company.findByIdAndDelete(id)) throw new ApiError(404, "Company not found.");
+    await mongoose.connection.transaction(async (session) => {
+      const company = await Company.findByIdAndUpdate(id, { $inc: { assignmentVersion: 1 } }, { session });
+      if (!company) throw new ApiError(404, "Company not found.");
+      if (await User.exists({ $or: [{ company: id }, { companies: id }] }).session(session)) {
+        throw new ApiError(409, "This company has users assigned. Reassign or delete those users before deleting the company.");
+      }
+      await Company.deleteOne({ _id: id }).session(session);
+    });
     res.sendStatus(204);
   });
   const locationInput = z.object({
@@ -599,7 +675,14 @@ export function createApp({ config, mailer, limits = true }) {
   app.put("/api/super-admin/locations/:id", (req, res) => saveLocation(req, res, true));
   app.delete("/api/super-admin/locations/:id", async (req, res) => {
     const id = departmentId.parse(req.params.id);
-    if (!await Location.findByIdAndDelete(id)) throw new ApiError(404, "Location not found.");
+    await mongoose.connection.transaction(async (session) => {
+      const location = await Location.findByIdAndUpdate(id, { $inc: { assignmentVersion: 1 } }, { session });
+      if (!location) throw new ApiError(404, "Location not found.");
+      if (await User.exists({ $or: [{ location: id }, { locations: id }] }).session(session)) {
+        throw new ApiError(409, "This location has users assigned. Reassign or delete those users before deleting the location.");
+      }
+      await Location.deleteOne({ _id: id }).session(session);
+    });
     res.sendStatus(204);
   });
   app.get("/api/super-admin/departments", async (_req, res) => {
@@ -643,7 +726,7 @@ export function createApp({ config, mailer, limits = true }) {
     await mongoose.connection.transaction(async (session) => {
       const department = await Department.findByIdAndDelete(id, { session });
       if (!department) throw new ApiError(404, "Department not found.");
-      if (await User.exists({ department: id }).session(session)) {
+      if (await User.exists({ $or: [{ department: id }, { departments: id }] }).session(session)) {
         throw new ApiError(409, "This department has assigned users. Reassign or remove their department before deleting it.");
       }
     });
