@@ -5,7 +5,7 @@ import UsersTable from "./UsersTable";
 import { staffModules, defaultAccess } from "./access";
 
 const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "", status: "ACTIVE", sidebarAccess: defaultAccess("") };
-const emptyAssignments = { departmentIds: [], companyIds: [], locationIds: [] };
+const emptyAssignments = { departmentIds: [], companyIds: [] };
 const legacyRoleNames = { ADMIN: "Admin (legacy)", EMPLOYEE: "Employee (legacy)", MANAGER: "Manager (legacy)", OPERATOR: "Operator (legacy)" };
 
 export default function Users({ refreshKey, onChanged }) {
@@ -14,7 +14,6 @@ export default function Users({ refreshKey, onChanged }) {
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [companies, setCompanies] = useState([]);
-  const [locations, setLocations] = useState([]);
   const [form, setForm] = useState(() => ({ ...emptyForm, ...emptyAssignments }));
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
@@ -35,15 +34,13 @@ export default function Users({ refreshKey, onChanged }) {
       api("/super-admin/departments"),
       api("/super-admin/roles"),
       api("/super-admin/companies"),
-      api("/super-admin/locations"),
     ])
-      .then(([people, teams, roleData, companyData, locationData]) => {
+      .then(([people, teams, roleData, companyData]) => {
         if (active) {
           setUsers(people.users);
           setDepartments(teams.departments);
           setAvailableRoles(roleData.roles);
           setCompanies(companyData.companies);
-          setLocations(locationData.locations);
         }
       })
       .catch((err) => { if (active) setError(err.message); })
@@ -124,7 +121,6 @@ export default function Users({ refreshKey, onChanged }) {
       status: user.status,
       departmentIds: user.departmentIds || (user.departmentId ? [user.departmentId] : []),
       companyIds: user.companyIds || (user.companyId ? [user.companyId] : []),
-      locationIds: user.locationIds || (user.locationId ? [user.locationId] : []),
       sidebarAccess: user.sidebarAccess ?? defaultAccess(user.role),
     });
     setDeleting(null); setError(""); setMessage("");
@@ -220,17 +216,7 @@ export default function Users({ refreshKey, onChanged }) {
                 </label>)}
               </div> : <p className="muted">Create a company in Department Management first.</p>}
             </fieldset>
-            <fieldset className="user-assignment" disabled={busy || loading}>
-              <legend>Locations{assignmentsRequired ? " *" : ""}</legend>
-              <p className="muted">Select all locations this user can approve requests for.</p>
-              {locations.length ? <div className="assignment-options">
-                {locations.map((location) => <label className="assignment-option" key={location.id}>
-                  <input type="checkbox" checked={form.locationIds.includes(location.id)} onChange={() => toggleAssignment("locationIds", location.id)} />
-                  <span>{location.name}</span>
-                </label>)}
-              </div> : <p className="muted">Create a location in Department Management first.</p>}
-            </fieldset>
-            {assignmentsRequired && (!form.departmentIds.length || !form.companyIds.length || !form.locationIds.length) && <p className="info">Select at least one department, company, and location for an approver user.</p>}
+            {assignmentsRequired && (!form.departmentIds.length || !form.companyIds.length) && <p className="info">Select at least one department and company for an approver user.</p>}
             <fieldset className="user-access" disabled={busy || loading}>
               <legend>Sidebar access</legend>
               <p className="muted">Choose the sections this user can open. Approval and booking access also allow the actions described below.</p>

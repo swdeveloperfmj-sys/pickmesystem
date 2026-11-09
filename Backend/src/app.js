@@ -541,8 +541,8 @@ export function createApp({ config, mailer, limits = true }) {
           ? currentUser.locations.map(String)
           : currentUser?.location ? [String(currentUser.location)] : []);
         const becomesApprover = (fields.sidebarAccess ?? (currentUser && sidebarAccess(currentUser)) ?? []).includes("APPROVALS");
-        if (becomesApprover && (!departmentIds.length || !companyIds.length || !locationIds.length)) {
-          throw new ApiError(400, "Approver users must have at least one department, company, and location assigned.");
+        if (becomesApprover && (!departmentIds.length || !companyIds.length)) {
+          throw new ApiError(400, "Approver users must have at least one department and company assigned.");
         }
         if (fields.role.startsWith("CUSTOM_")) {
           if (!(await Role.findByIdAndUpdate(fields.role.slice(7),
