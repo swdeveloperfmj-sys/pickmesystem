@@ -13,6 +13,7 @@ import {
   AuditLog,
   Department,
   Company,
+  Location,
   Role,
   TransportRequest,
   initializeDatabase,
@@ -62,6 +63,7 @@ beforeEach(async () => {
   await Promise.all([
     User.deleteMany({}),
     Company.deleteMany({}),
+    Location.deleteMany({}),
     SuperAdminSetup.deleteMany({}),
     SetupState.deleteMany({}),
     AuditLog.deleteMany({}),
@@ -173,6 +175,36 @@ test("company CRUD is protected, validated, unique and persistent", async () => 
   await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(204);
   await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(404);
   assert.equal(await Company.countDocuments(), 0);
+});
+
+test("location CRUD is protected, validated, unique and persistent", async () => {
+  const base = "/api/super-admin/locations";
+  const missingId = new mongoose.Types.ObjectId().toString();
+  await request(app).get(base).expect(401);
+  await request(app).post(base).send({ name: "Main Office" }).expect(401);
+  await request(app).put(`${base}/${missingId}`).send({ name: "Main Office" }).expect(401);
+  await request(app).delete(`${base}/${missingId}`).expect(401);
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const created = await request(app).post(base).set("Cookie", cookie)
+    .send({ name: "  Main Office  ", description: "Headquarters" }).expect(201);
+  const id = created.body.location.id;
+  assert.equal(created.body.location.name, "Main Office");
+  assert.equal(created.body.location.nameKey, undefined);
+  await request(app).post(base).set("Cookie", cookie).send({ name: "main office" }).expect(409);
+  for (const body of [{ name: " " }, { name: "x" }, { name: "Branch", description: "x".repeat(501) }, { name: "Branch", role: "ADMIN" }]) {
+    await request(app).post(base).set("Cookie", cookie).send(body).expect(400);
+  }
+  await request(app).put(`${base}/${id}`).set("Cookie", cookie)
+    .send({ name: "City Office", description: "Updated" }).expect(200);
+  assert.equal((await Location.findById(id)).name, "City Office");
+  const list = await request(app).get(base).set("Cookie", cookie).expect(200);
+  assert.deepEqual(list.body.locations.map((item) => item.name), ["City Office"]);
+  await request(app).delete(`${base}/bad-id`).set("Cookie", cookie).expect(400);
+  await request(app).put(`${base}/${missingId}`).set("Cookie", cookie).send({ name: "Valid" }).expect(404);
+  await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(204);
+  await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(404);
+  assert.equal(await Location.countDocuments(), 0);
 });
 
 test("department CRUD is protected, validated, unique, persistent, and reflected in dashboard totals", async () => {

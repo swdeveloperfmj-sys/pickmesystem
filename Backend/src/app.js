@@ -12,7 +12,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { z } from "zod";
-import { User, SuperAdminSetup, SetupState, AuditLog, Department, Company, Role, TransportRequest, OrganizationBudget } from "./models.js";
+import { User, SuperAdminSetup, SetupState, AuditLog, Department, Company, Location, Role, TransportRequest, OrganizationBudget } from "./models.js";
 import { registerTransport } from "./transport.js";
 import { isAllowedOrigin } from "./origin.js";
 import { sopConfig } from "./sop.js";
@@ -544,6 +544,37 @@ export function createApp({ config, mailer, limits = true }) {
   app.delete("/api/super-admin/companies/:id", async (req, res) => {
     const id = departmentId.parse(req.params.id);
     if (!await Company.findByIdAndDelete(id)) throw new ApiError(404, "Company not found.");
+    res.sendStatus(204);
+  });
+  const locationInput = z.object({
+    name: z.string().trim().min(2).max(100).regex(/^[^<>\p{Cc}]+$/u),
+    description: z.string().trim().max(500).default(""),
+  }).strict();
+  const publicLocation = (location) => ({ id: location.id, name: location.name, description: location.description });
+  app.get("/api/super-admin/locations", async (_req, res) => {
+    res.json({ locations: (await Location.find().sort({ nameKey: 1 })).map(publicLocation) });
+  });
+  async function saveLocation(req, res, update) {
+    const id = update ? departmentId.parse(req.params.id) : undefined;
+    const data = locationInput.parse(req.body);
+    const values = { ...data, nameKey: data.name.toLowerCase() };
+    let location;
+    try {
+      location = update
+        ? await Location.findByIdAndUpdate(id, { $set: values }, { returnDocument: "after", runValidators: true })
+        : await Location.create(values);
+    } catch (error) {
+      if (error.code === 11000) throw new ApiError(409, "A location with this name already exists.");
+      throw error;
+    }
+    if (!location) throw new ApiError(404, "Location not found.");
+    res.status(update ? 200 : 201).json({ location: publicLocation(location) });
+  }
+  app.post("/api/super-admin/locations", (req, res) => saveLocation(req, res, false));
+  app.put("/api/super-admin/locations/:id", (req, res) => saveLocation(req, res, true));
+  app.delete("/api/super-admin/locations/:id", async (req, res) => {
+    const id = departmentId.parse(req.params.id);
+    if (!await Location.findByIdAndDelete(id)) throw new ApiError(404, "Location not found.");
     res.sendStatus(204);
   });
   app.get("/api/super-admin/departments", async (_req, res) => {
