@@ -309,10 +309,15 @@ test(
       await page.getByText("Department created.", { exact: true }).waitFor();
       await selectSection("User Management");
       await page.getByRole("button", { name: "Roles", exact: true }).click();
+      await page.getByRole("button", { name: "+ Create role", exact: true }).click();
       await page.getByLabel("Role name", { exact: true }).fill("Transport Coordinator");
-      await page.getByLabel("Role description (optional)", { exact: true }).fill("Coordinates company transport");
-      await page.getByRole("button", { name: "Create role", exact: true }).click();
-      await page.getByText("Role created. You can now assign it from the Users section.", { exact: true }).waitFor();
+      await page.getByLabel("Description (optional)", { exact: true }).fill("Coordinates company transport");
+      await page.getByRole("dialog", { name: "Create role", exact: true }).getByRole("button", { name: "Create role", exact: true }).click();
+      await page.getByText("Role created.", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "+ Create role", exact: true }).click();
+      await page.getByLabel("Role name", { exact: true }).fill("Manager");
+      await page.getByRole("dialog", { name: "Create role", exact: true }).getByRole("button", { name: "Create role", exact: true }).click();
+      await page.getByText("Role created.", { exact: true }).waitFor();
       await checkResponsiveLayout();
       await page.screenshot({ path: `${artifactDir}/roles-dark-desktop.png`, fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
@@ -346,7 +351,7 @@ test(
       assert.equal(await page.getByRole("group", { name: "Sidebar access", exact: true }).getByRole("checkbox", { name: /^Reports/ }).isChecked(), true);
       assert.equal(await page.getByLabel("Contact number", { exact: true }).inputValue(), "0771234567");
       await page.getByLabel("Contact number", { exact: true }).fill("0777654321");
-      await page.getByLabel("Role", { exact: true }).selectOption("MANAGER");
+      await page.getByLabel("Role", { exact: true }).selectOption({ label: "Manager" });
       await page.getByLabel("Status", { exact: true }).selectOption("INACTIVE");
       await page.getByLabel("Department", { exact: true }).selectOption({ label: "Finance" });
       await page.setViewportSize({ width: 1440, height: 1000 });
@@ -371,7 +376,7 @@ test(
       await page.getByLabel("Search users", { exact: true }).fill("no-match-example");
       await page.getByText("No matching users", { exact: true }).waitFor();
       await page.getByRole("button", { name: "Clear filters", exact: true }).click();
-      await page.getByLabel("Filter by role", { exact: true }).selectOption("MANAGER");
+      await page.getByLabel("Filter by role", { exact: true }).selectOption({ label: "Manager" });
       assert.equal(await page.locator(".user-table tbody tr").count(), 1);
       await page.getByLabel("Filter by department", { exact: true }).selectOption({ label: "Finance" });
       await page.getByLabel("Filter by status", { exact: true }).selectOption("ACTIVE");

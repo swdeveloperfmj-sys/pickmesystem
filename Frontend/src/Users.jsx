@@ -4,12 +4,12 @@ import Roles from "./Roles";
 import UsersTable from "./UsersTable";
 import { staffModules, defaultAccess } from "./access";
 
-const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "EMPLOYEE", status: "ACTIVE", departmentId: "", sidebarAccess: defaultAccess("EMPLOYEE") };
+const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "", status: "ACTIVE", departmentId: "", sidebarAccess: defaultAccess("") };
+const legacyRoleNames = { ADMIN: "Admin (legacy)", EMPLOYEE: "Employee (legacy)", MANAGER: "Manager (legacy)", OPERATOR: "Operator (legacy)" };
 
 export default function Users({ refreshKey, onChanged }) {
   const [section, setSection] = useState("users");
   const [availableRoles, setAvailableRoles] = useState([]);
-  const roles = Object.fromEntries(availableRoles.map((role) => [role.value, role.name]));
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [form, setForm] = useState(emptyForm);
@@ -38,7 +38,17 @@ export default function Users({ refreshKey, onChanged }) {
 
   function reset() { setEditing(null); setForm(emptyForm); setDialogError(""); }
   function closeEditor() { if (!busy) { editor.current.close(); reset(); } }
-  function create() { reset(); editor.current.showModal(); }
+  function create() {
+    if (!availableRoles.length) {
+      setError("Create a role before adding users.");
+      return;
+    }
+    setError("");
+    setForm({ ...emptyForm, role: availableRoles[0].value });
+    setEditing(null);
+    setDialogError("");
+    editor.current.showModal();
+  }
   function confirmDelete(user) { setDeleting(user); setDialogError(""); deleteDialog.current.showModal(); }
   function closeDelete() { if (!busy) { deleteDialog.current.close(); setDeleting(null); setDialogError(""); } }
   function change(event) { const { name, value } = event.target; setForm((current) => ({ ...current, [name]: value })); }
@@ -81,10 +91,16 @@ export default function Users({ refreshKey, onChanged }) {
         <button type="button" aria-pressed={section === "roles"} disabled={busy} onClick={() => setSection("roles")}>Roles</button>
       </div>
       {error && <div className="error" role="alert">{error}</div>}
-      {section === "roles" && <Roles roles={availableRoles} loading={loading} onCreated={(role) => setAvailableRoles((items) => [...items, role])} />}
+      {section === "roles" && <Roles roles={availableRoles} loading={loading} onChanged={setAvailableRoles} />}
       <div className="page-enter" hidden={section !== "users"}>
       <p className="department-status" role="status">{message}</p>
-      <UsersTable users={users} roles={availableRoles} departments={departments} loading={loading} busy={busy} onCreate={create} onEdit={edit} onDelete={confirmDelete} />
+      {availableRoles.length === 0 && !loading && <p className="info">Create a role in the Roles section before adding users.</p>}
+      <UsersTable users={users} roles={[
+        ...availableRoles,
+        ...Object.entries(legacyRoleNames)
+          .filter(([value]) => users.some((user) => user.role === value))
+          .map(([value, name]) => ({ value, name })),
+      ]} departments={departments} loading={loading} busy={busy} onCreate={create} onEdit={edit} onDelete={confirmDelete} />
       <dialog ref={editor} className="user-editor-dialog" aria-labelledby="user-editor-title" onCancel={(event) => { if (busy) event.preventDefault(); else reset(); }}>
         <header className="user-dialog-heading"><div><span className="eyebrow accent">PEOPLE & ACCESS</span><h2 id="user-editor-title">{editing ? "Edit user" : "Create user"}</h2></div><button type="button" className="user-dialog-close" aria-label="Close user form" disabled={busy} onClick={closeEditor}>&times;</button></header>
         <p className="muted">{editing ? "Update account details and department assignment." : "Add a team member and choose their role and department."}</p>
@@ -106,7 +122,9 @@ export default function Users({ refreshKey, onChanged }) {
             <div className="field-row">
               <div className="select-field"><label htmlFor="user-role">Role</label>
                 <select id="user-role" name="role" value={form.role} onChange={change} disabled={busy || loading}>
-                  {Object.entries(roles).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  <option value="">Select a role</option>
+                  {availableRoles.map((role) => <option key={role.value} value={role.value}>{role.name}</option>)}
+                  {editing && legacyRoleNames[form.role] && <option value={form.role}>{legacyRoleNames[form.role]}</option>}
                 </select>
               </div>
               <div className="select-field"><label htmlFor="user-status">Status</label>
@@ -130,7 +148,7 @@ export default function Users({ refreshKey, onChanged }) {
               {!form.sidebarAccess.length && <p className="info">This user can sign in but has no workspace sections until you grant access.</p>}
             </fieldset>
             <div className="user-dialog-actions">
-              <button type="submit" className="primary" disabled={busy || loading}>{busy ? "Saving…" : editing ? "Save changes" : "Create user"}</button>
+              <button type="submit" className="primary" disabled={busy || loading || !availableRoles.length && !editing}>{busy ? "Saving…" : editing ? "Save changes" : "Create user"}</button>
               <button type="button" className="secondary" disabled={busy} onClick={closeEditor}>Cancel</button>
             </div>
           </form>

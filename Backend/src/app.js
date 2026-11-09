@@ -70,6 +70,11 @@ const departmentInput = z.object({
   description: z.string().trim().max(500).default(""),
   budget: z.number().finite().min(0).max(1000000000000).default(0),
 }).strict();
+const roleInput = z.object({
+  name: z.string().trim().min(2).max(100).regex(/^[^<>\p{Cc}]+$/u)
+    .transform((value) => value.replace(/\s+/g, " ")),
+  description: z.string().trim().max(500).default(""),
+}).strict();
 const departmentId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid department ID");
 const managedUserInput = z.object({
   fullName: registration.shape.fullName,
@@ -86,14 +91,12 @@ const userPassword = z.string().min(6).refine(
   (value) => Buffer.byteLength(value, "utf8") <= 72,
   "Password must fit within 72 UTF-8 bytes",
 );
-const createUserInput = managedUserInput.extend({ password: userPassword });
+const createUserInput = managedUserInput.extend({ password: userPassword })
+  .refine((value) => value.role.startsWith("CUSTOM_"), {
+    message: "Create a custom role before assigning it to a new user.",
+    path: ["role"],
+  });
 const updateUserInput = managedUserInput.extend({ password: userPassword.optional() });
-const builtinRoles = [
-  { value: "ADMIN", name: "Admin", description: "Administrator account" },
-  { value: "EMPLOYEE", name: "Employee", description: "Employee account" },
-  { value: "MANAGER", name: "Manager", description: "Manager account" },
-  { value: "OPERATOR", name: "Operator", description: "Operator account" },
-].map((role) => ({ ...role, builtIn: true }));
 const publicRole = (role) => ({ value: `CUSTOM_${role.id}`, name: role.name, description: role.description, builtIn: false });
 const managedUser = (user) => ({
   ...publicUser(user),
@@ -450,22 +453,40 @@ export function createApp({ config, mailer, limits = true }) {
   app.get("/api/super-admin/sop", (_req, res) => res.json(sopConfig));
   app.get("/api/super-admin/roles", async (_req, res) => {
     const roles = await Role.find().sort({ nameKey: 1 });
-    res.json({ roles: [...builtinRoles, ...roles.map(publicRole)] });
+    res.json({ roles: roles.map(publicRole) });
   });
-  app.post("/api/super-admin/roles", async (req, res) => {
-    const data = departmentInput.parse(req.body);
+  async function saveRole(req, res, update) {
+    const id = update ? departmentId.parse(req.params.id) : undefined;
+    const data = roleInput.parse(req.body);
     const nameKey = data.name.toLowerCase();
-    const reserved = ["admin", "employee", "manager", "operator", "superadmin", "superadministrator"];
-    if (reserved.includes(nameKey.replace(/[\s_-]+/g, ""))) {
-      throw new ApiError(409, "This role name is reserved for a built-in role.");
+    if (["superadmin", "superadministrator"].includes(nameKey.replace(/[\s_-]+/g, ""))) {
+      throw new ApiError(409, "This role name is reserved for the Super Administrator.");
     }
+    let role;
     try {
-      const role = await Role.create({ ...data, nameKey });
-      res.status(201).json({ role: publicRole(role) });
+      role = update
+        ? await Role.findByIdAndUpdate(id, { $set: { ...data, nameKey } }, { returnDocument: "after", runValidators: true })
+        : await Role.create({ ...data, nameKey });
     } catch (error) {
       if (error.code === 11000) throw new ApiError(409, "A role with this name already exists.");
       throw error;
     }
+    if (!role) throw new ApiError(404, "Role not found.");
+    res.status(update ? 200 : 201).json({ role: publicRole(role) });
+  }
+  app.post("/api/super-admin/roles", (req, res) => saveRole(req, res, false));
+  app.put("/api/super-admin/roles/:id", (req, res) => saveRole(req, res, true));
+  app.delete("/api/super-admin/roles/:id", async (req, res) => {
+    const id = departmentId.parse(req.params.id);
+    await mongoose.connection.transaction(async (session) => {
+      const role = await Role.findByIdAndUpdate(id, { $inc: { assignmentVersion: 1 } }, { session });
+      if (!role) throw new ApiError(404, "Role not found.");
+      if (await User.exists({ role: `CUSTOM_${id}` }).session(session)) {
+        throw new ApiError(409, "This role is assigned to users. Reassign or delete those users before deleting the role.");
+      }
+      await Role.deleteOne({ _id: id }).session(session);
+    });
+    res.sendStatus(204);
   });
   app.get("/api/super-admin/users", async (_req, res) => {
     const users = await User.find({ role: { $ne: "SUPER_ADMIN" } })
@@ -480,9 +501,13 @@ export function createApp({ config, mailer, limits = true }) {
     let saved;
     try {
       await mongoose.connection.transaction(async (session) => {
-        if (fields.role.startsWith("CUSTOM_") &&
-          !(await Role.exists({ _id: fields.role.slice(7) }).session(session))) {
-          throw new ApiError(400, "Selected role no longer exists. Refresh the role list.");
+        if (fields.role.startsWith("CUSTOM_")) {
+          if (!(await Role.findByIdAndUpdate(fields.role.slice(7),
+            { $inc: { assignmentVersion: 1 } }, { session }))) {
+            throw new ApiError(400, "Selected role no longer exists. Refresh the role list.");
+          }
+        } else if (!update || !(await User.exists({ _id: id, role: fields.role }).session(session))) {
+          throw new ApiError(400, "Select a current custom role.");
         }
         // Lock the department document so assignment cannot race its deletion.
         if (assignedId) {

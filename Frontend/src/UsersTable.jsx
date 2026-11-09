@@ -34,7 +34,7 @@ export default function UsersTable({ users, roles, departments, loading, busy, o
   return <section className="user-directory" aria-label="User list" aria-busy={loading}>
     <header className="user-directory-heading">
       <div><span className="eyebrow accent">PEOPLE & ACCESS</span><h2>Team tree <span className="user-total">{users.length}</span></h2><p>Explore your team by department and role.</p></div>
-      <button type="button" className="primary user-add" disabled={loading || busy} onClick={onCreate}><span aria-hidden="true">+</span> Add user</button>
+      <button type="button" className="primary user-add" disabled={loading || busy || !roles.length} onClick={onCreate}><span aria-hidden="true">+</span> Add user</button>
     </header>
     <div className="user-table-toolbar">
       <label className="user-search" htmlFor="user-search">Search users

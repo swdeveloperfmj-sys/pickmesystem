@@ -258,7 +258,9 @@ test("user CRUD validates roles, credentials and department links while protecti
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
   const first = await Department.create({ name: "Engineering", nameKey: "engineering" });
   const second = await Department.create({ name: "Finance", nameKey: "finance" });
-  const data = { fullName: "Taylor Silva", username: "taylor.silva", contact: "0771234567", password: "User12", role: "EMPLOYEE", status: "ACTIVE", departmentId: first.id };
+  const employeeRole = await Role.create({ name: "Team Member", nameKey: "team member" });
+  const managerRole = await Role.create({ name: "Team Lead", nameKey: "team lead" });
+  const data = { fullName: "Taylor Silva", username: "taylor.silva", contact: "0771234567", password: "User12", role: `CUSTOM_${employeeRole.id}`, status: "ACTIVE", departmentId: first.id };
   const created = await request(app).post(base).set("Cookie", cookie).send(data).expect(201);
   const userId = created.body.user.id;
   assert.equal(created.body.user.department.name, "Engineering");
@@ -272,7 +274,7 @@ test("user CRUD validates roles, credentials and department links while protecti
   assert.equal(list.body.users.length, 1);
   assert.equal(list.body.users[0].passwordHash, undefined);
   const { password, ...update } = data;
-  for (const change of [{ role: "SUPER_ADMIN" }, { departmentId: absent }, { departmentId: "invalid" }, { isEmailVerified: true }, { contact: "abc1234" }, { contact: "123" }, { contact: "" }, { contact: "1".repeat(16) }, { password: "short" }, { password: "🔒".repeat(20) }, { status: "UNKNOWN" }]) {
+  for (const change of [{ role: "SUPER_ADMIN" }, { role: "EMPLOYEE" }, { departmentId: absent }, { departmentId: "invalid" }, { isEmailVerified: true }, { contact: "abc1234" }, { contact: "123" }, { contact: "" }, { contact: "1".repeat(16) }, { password: "short" }, { password: "🔒".repeat(20) }, { status: "UNKNOWN" }]) {
     await request(app).post(base).set("Cookie", cookie).send({ ...data, ...change }).expect(400);
   }
   await request(app).post(base).set("Cookie", cookie).send({ ...data, username: "unique.user", departmentId: null }).expect(201);
@@ -283,7 +285,7 @@ test("user CRUD validates roles, credentials and department links while protecti
   await request(app).delete(`/api/super-admin/departments/${first.id}`).set("Cookie", cookie).expect(409);
   assert.ok(await Department.findById(first.id));
   const edited = await request(app).put(`${base}/${userId}`).set("Cookie", cookie)
-    .send({ ...update, fullName: "Taylor Perera", contact: "0779998888", departmentId: second.id, role: "MANAGER", status: "INACTIVE" }).expect(200);
+    .send({ ...update, fullName: "Taylor Perera", contact: "0779998888", departmentId: second.id, role: `CUSTOM_${managerRole.id}`, status: "INACTIVE" }).expect(200);
   assert.equal(edited.body.user.department.name, "Finance");
   assert.equal(edited.body.user.isActive, false);
   assert.equal(edited.body.user.contact, "0779998888");
@@ -297,7 +299,7 @@ test("user CRUD validates roles, credentials and department links while protecti
   await request(app).put(`${base}/${absent}`).set("Cookie", cookie).send({ ...update, departmentId: null }).expect(404);
   await request(app).delete(`${base}/invalid`).set("Cookie", cookie).expect(400);
   await request(app).post(base).set("Cookie", cookie).set("Origin", "https://evil.example").send(data).expect(403);
-  const token = jwt.sign({ role: "EMPLOYEE" }, config.JWT_SECRET, { subject: userId, issuer: "ctms", audience: "ctms-super-admin" });
+  const token = jwt.sign({ role: data.role }, config.JWT_SECRET, { subject: userId, issuer: "ctms", audience: "ctms-super-admin" });
   await request(app).get(base).set("Cookie", `ctms_session=${token}`).expect(401);
   await request(app).delete(`${base}/${userId}`).set("Cookie", cookie).expect(204);
   await request(app).delete(`${base}/${userId}`).set("Cookie", cookie).expect(404);
@@ -321,7 +323,8 @@ test("department assignment and deletion cannot leave a dangling user reference"
   const verified = await complete();
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
   const department = await Department.create({ name: "Concurrent", nameKey: "concurrent" });
-  const data = { fullName: "Race Test", username: "race.test", contact: "+94 77 222 3333", password: "RacePassword!123", role: "EMPLOYEE", status: "ACTIVE", departmentId: department.id };
+  const role = await Role.create({ name: "Race Tester", nameKey: "race tester" });
+  const data = { fullName: "Race Test", username: "race.test", contact: "+94 77 222 3333", password: "RacePassword!123", role: `CUSTOM_${role.id}`, status: "ACTIVE", departmentId: department.id };
   const [assigned, removed] = await Promise.all([
     request(app).post("/api/super-admin/users").set("Cookie", cookie).send(data),
     request(app).delete(`/api/super-admin/departments/${department.id}`).set("Cookie", cookie),
@@ -333,13 +336,16 @@ test("department assignment and deletion cannot leave a dangling user reference"
 
 test("custom roles are unique, protected, persistent and assignable without Super Admin privileges", async () => {
   const base = "/api/super-admin/roles";
+  const missingId = new mongoose.Types.ObjectId().toString();
   await request(app).get(base).expect(401);
   await request(app).post(base).send({ name: "Coordinator" }).expect(401);
+  await request(app).put(`${base}/${missingId}`).send({ name: "Coordinator" }).expect(401);
+  await request(app).delete(`${base}/${missingId}`).expect(401);
   const verified = await complete();
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
   const defaults = await request(app).get(base).set("Cookie", cookie).expect(200);
-  assert.deepEqual(defaults.body.roles.map((role) => role.value), ["ADMIN", "EMPLOYEE", "MANAGER", "OPERATOR"]);
-  for (const name of ["Admin", "employee", "MANAGER", "operator", "Super Admin", "super_admin", "Super Administrator"]) {
+  assert.deepEqual(defaults.body.roles, []);
+  for (const name of ["Super Admin", "super_admin", "Super Administrator"]) {
     await request(app).post(base).set("Cookie", cookie).send({ name }).expect(409);
   }
   for (const data of [{ name: " " }, { name: "x" }, { name: "Valid", permissions: ["SUPER_ADMIN"] }, { name: "Valid", description: "x".repeat(501) }]) {
@@ -352,12 +358,22 @@ test("custom roles are unique, protected, persistent and assignable without Supe
   const role = created.body.role.value;
   await request(app).post(base).set("Cookie", cookie).send({ name: "transport coordinator" }).expect(409);
   const list = await request(app).get(base).set("Cookie", cookie).expect(200);
-  assert.equal(list.body.roles.length, 5);
+  assert.equal(list.body.roles.length, 1);
+  const roleId = role.slice(7);
+  const editedRole = await request(app).put(`${base}/${roleId}`).set("Cookie", cookie)
+    .send({ name: "Transport Lead", description: "Updated responsibilities" }).expect(200);
+  assert.equal(editedRole.body.role.value, role);
+  assert.equal(editedRole.body.role.name, "Transport Lead");
+  await request(app).post(base).set("Cookie", cookie).send({ name: "transport lead" }).expect(409);
+  await request(app).put(`${base}/${roleId}`).set("Cookie", cookie)
+    .send({ name: "x" }).expect(400);
   const userData = { fullName: "Sam Silva", username: "sam.silva", contact: "011 234 5678", password: "RolePassword!123", role, status: "ACTIVE", departmentId: null };
+  await request(app).post("/api/super-admin/users").set("Cookie", cookie).send({ ...userData, role: "EMPLOYEE" }).expect(400);
   const person = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send(userData).expect(201);
   assert.equal(person.body.user.role, role);
   const { password, ...update } = userData;
-  await request(app).put(`/api/super-admin/users/${person.body.user.id}`).set("Cookie", cookie).send({ ...update, role: "EMPLOYEE" }).expect(200);
+  await request(app).delete(`${base}/${roleId}`).set("Cookie", cookie).expect(409);
+  await request(app).put(`/api/super-admin/users/${person.body.user.id}`).set("Cookie", cookie).send({ ...update, role: "EMPLOYEE" }).expect(400);
   await request(app).put(`/api/super-admin/users/${person.body.user.id}`).set("Cookie", cookie).send(update).expect(200);
   assert.equal((await User.findById(person.body.user.id)).role, role);
   const unknown = `CUSTOM_${new mongoose.Types.ObjectId()}`;
@@ -366,6 +382,22 @@ test("custom roles are unique, protected, persistent and assignable without Supe
   await request(app).get(base).set("Cookie", `ctms_session=${token}`).expect(401);
   await request(app).post("/api/super-admin/auth/login").send({ identifier: userData.username, password }).expect(401);
   await request(app).post(base).set("Cookie", cookie).set("Origin", "https://evil.example").send({ name: "Blocked" }).expect(403);
+  await request(app).delete(`/api/super-admin/users/${person.body.user.id}`).set("Cookie", cookie).expect(204);
+  await request(app).delete(`${base}/bad-id`).set("Cookie", cookie).expect(400);
+  await request(app).delete(`${base}/${roleId}`).set("Cookie", cookie).expect(204);
+  await request(app).delete(`${base}/${roleId}`).set("Cookie", cookie).expect(404);
+  const legacy = await User.create({
+    fullName: "Legacy Staff",
+    username: "legacy.staff",
+    contact: "0112345678",
+    passwordHash: "legacy-test-hash",
+    role: "EMPLOYEE",
+  });
+  const legacyUpdate = await request(app).put(`/api/super-admin/users/${legacy.id}`)
+    .set("Cookie", cookie)
+    .send({ fullName: legacy.fullName, username: legacy.username, contact: legacy.contact, role: legacy.role, status: legacy.status, departmentId: null })
+    .expect(200);
+  assert.equal(legacyUpdate.body.user.role, "EMPLOYEE");
 });
 
 test("SOP workflow collects request details without transport profiles and enforces self-service, Annexure B/C, approval deadlines, booking ownership and completion", async () => {
@@ -454,7 +486,8 @@ test("Super Admin sidebar grants persist, control staff actions, and revoke acce
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
   const base = "/api/super-admin/users";
   const team = await Department.create({ name: "Transport", nameKey: "transport" });
-  const account = (username, sidebarAccess) => ({ fullName: username, username, contact: "0771234567", password: "Staff123", role: "EMPLOYEE", status: "ACTIVE", departmentId: null, sidebarAccess });
+  const staffRole = await Role.create({ name: "Transport Staff", nameKey: "transport staff" });
+  const account = (username, sidebarAccess) => ({ fullName: username, username, contact: "0771234567", password: "Staff123", role: `CUSTOM_${staffRole.id}`, status: "ACTIVE", departmentId: null, sidebarAccess });
   const ownerData = account("access.owner", ["DASHBOARD", "REQUESTS", "REPORTS"]);
   const reviewerData = account("access.approver", ["DASHBOARD"]);
   const bookerData = account("access.booker", ["DASHBOARD"]);

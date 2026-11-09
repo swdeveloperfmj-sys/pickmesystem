@@ -40,6 +40,7 @@ export const Role = mongoose.model("Role", new Schema({
   name: { type: String, required: true, maxlength: 100 },
   nameKey: { type: String, required: true, unique: true },
   description: { type: String, default: "", maxlength: 500 },
+  assignmentVersion: { type: Number, default: 0, select: false },
 }, { timestamps: true }));
 export const TransportRequest = mongoose.model("TransportRequest", new Schema({
   requester: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
