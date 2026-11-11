@@ -592,7 +592,12 @@ test("SOP workflow collects request details without transport profiles and enfor
   assert.equal(approved.body.request.status, "APPROVED");
   await owner.put(`${base}/${record.id}`).send({ ...body, version: 0 }).expect(409);
   await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 1, bookingReference: "REF1" }).expect(400);
-  const booked = await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 1, bookingReference: "REF1", externalActionConfirmed: true }).expect(200);
+  for (const bookingAmount of [undefined, 0, -1, 1.234]) {
+    await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 1, bookingAmount, externalActionConfirmed: true }).expect(400);
+  }
+  const booked = await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 1, bookingAmount: 1500.50, externalActionConfirmed: true }).expect(200);
+  assert.equal(booked.body.request.bookingAmount, 1500.50);
+  assert.equal(booked.body.request.bookingReference, "");
   assert.equal(booked.body.request.status, "BOOKED");
   await owner.post(`${base}/${record.id}/action`).send({ action: "COMPLETE", version: 2 }).expect(400);
   await owner.post(`${base}/${record.id}/action`).send({ action: "COMPLETE", version: 2, routeVerified: true, completionMessageChecked: true }).expect(200);
@@ -660,7 +665,7 @@ test("Super Admin sidebar grants persist, control staff actions, and revoke acce
   await reviewer.post(action).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(200);
   await booker.post(action).send({ action: "BOOK", version: 1, externalActionConfirmed: true, bookingReference: "ACCESS-001" }).expect(404);
   await grant(bookerUser, bookerData, ["BOOKINGS"]);
-  await booker.post(action).send({ action: "BOOK", version: 1, externalActionConfirmed: true, bookingReference: "ACCESS-001" }).expect(200);
+  await booker.post(action).send({ action: "BOOK", version: 1, externalActionConfirmed: true, bookingReference: "ACCESS-001", bookingAmount: 1200 }).expect(200);
   await grant(bookerUser, bookerData, []);
   await booker.get("/api/transport/requests").expect(403);
   await grant(ownerUser, ownerData, ["REPORTS", "HISTORY"]);
@@ -688,15 +693,25 @@ test("SOP changes, returns and cancellations require responsible staff and rejec
   const body = { requesterDesignation: "Accounts Executive", requesterContact: "0771234567", departmentId: department.id, passengerCount: 1, service: "RIDE", pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Accounts review", justification: "Official review", passengers: [{ name: "Owner", designation: "Accounts Executive" }] };
   let record = (await owner.post(base).send(body).expect(201)).body.request;
   assert.deepEqual(record.approvers.map(String).sort(), [approver.id, secondApprover.id].sort());
+  const pendingUrl = "/api/transport/approvals/pending-count";
+  await request(app).get(pendingUrl).expect(401);
+  await owner.get(pendingUrl).expect(403);
+  assert.equal((await reviewer.get(pendingUrl).expect(200)).body.count, 1);
+  assert.equal((await alsoReviewer.get(pendingUrl).expect(200)).body.count, 1);
+  assert.equal((await outsider.get(pendingUrl).expect(200)).body.count, 0);
   assert.equal((await alsoReviewer.get(base)).body.requests.length, 1);
   assert.equal((await outsider.get(base)).body.requests.length, 0);
   await outsider.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: record.version, approvalShared: true }).expect(404);
   async function act(agent, action, extra = {}) { const result = await agent.post(`${base}/${record.id}/action`).send({ action, version: record.version, ...extra }).expect(200); record = result.body.request; }
   await act(reviewer, "RETURN", { note: "Clarify purpose" });
+  assert.equal((await reviewer.get(pendingUrl).expect(200)).body.count, 0);
   await owner.put(`${base}/${record.id}`).send({ ...body, version: 0 }).expect(409);
   record = (await owner.put(`${base}/${record.id}`).send({ ...body, version: record.version }).expect(200)).body.request;
+  assert.equal((await alsoReviewer.get(pendingUrl).expect(200)).body.count, 1);
   await act(reviewer, "APPROVE", { approvalShared: true });
-  await act(assistant, "BOOK", { bookingReference: "REF2", externalActionConfirmed: true });
+  assert.equal((await reviewer.get(pendingUrl).expect(200)).body.count, 0);
+  assert.equal((await alsoReviewer.get(pendingUrl).expect(200)).body.count, 0);
+  await act(assistant, "BOOK", { bookingReference: "REF2", bookingAmount: 1200, externalActionConfirmed: true });
   await act(owner, "REPORT_ISSUE", { note: "Driver delayed; notify assistant" });
   await act(owner, "REQUEST_CHANGE", { note: "Destination needs changing" });
   await assistant.post(`${base}/${record.id}/action`).send({ action: "CONFIRM_CHANGE", version: record.version, note: "Resolved" }).expect(403);
@@ -704,7 +719,7 @@ test("SOP changes, returns and cancellations require responsible staff and rejec
   record = (await owner.put(`${base}/${record.id}`).send({ ...body, version: record.version }).expect(200)).body.request;
   assert.equal(record.approvalSharedAt, null);
   await act(reviewer, "APPROVE", { approvalShared: true });
-  await act(assistant, "BOOK", { bookingReference: "REF3", externalActionConfirmed: true });
+  await act(assistant, "BOOK", { bookingReference: "REF3", bookingAmount: 1400, externalActionConfirmed: true });
   await act(owner, "CANCEL", { note: "Meeting cancelled" });
   assert.equal(record.status, "CANCELLATION_REQUESTED");
   await owner.post(`${base}/${record.id}/action`).send({ action: "CONFIRM_CANCEL", version: record.version, externalActionConfirmed: true, note: "Cancel" }).expect(403);

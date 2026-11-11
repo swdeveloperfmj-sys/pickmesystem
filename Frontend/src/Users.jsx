@@ -50,14 +50,15 @@ export default function Users({ refreshKey, onChanged }) {
 
   function reset() { setEditing(null); setForm({ ...emptyForm, ...emptyAssignments }); setDialogError(""); }
   function closeEditor() { if (!busy) { editor.current.close(); reset(); } }
-  function create(approver = false) {
+  function create(approver = false, assistant = false) {
     setError("");
     const role = "EMPLOYEE";
     setForm({
       ...emptyForm,
       ...emptyAssignments,
       role,
-      sidebarAccess: [...new Set([
+      designation: assistant ? "Administrative Assistant" : "",
+      sidebarAccess: assistant ? ["DASHBOARD", "BOOKINGS", "HISTORY"] : [...new Set([
         ...defaultAccess(role),
         ...(approver ? ["APPROVALS"] : []),
       ])],
@@ -136,7 +137,10 @@ export default function Users({ refreshKey, onChanged }) {
     (user.sidebarAccess ?? defaultAccess(user.role)).includes("APPROVALS"),
   );
   const regularUsers = users.filter((user) =>
-    !(user.sidebarAccess ?? defaultAccess(user.role)).includes("APPROVALS"),
+    !(user.sidebarAccess ?? defaultAccess(user.role)).some((access) => ["APPROVALS", "BOOKINGS"].includes(access)),
+  );
+  const assistantUsers = users.filter((user) =>
+    (user.sidebarAccess ?? defaultAccess(user.role)).includes("BOOKINGS"),
   );
   const assignmentsRequired = form.sidebarAccess.includes("APPROVALS");
   const eligibleApprovers = matchingApprovers(users, form, editing);
@@ -145,28 +149,29 @@ export default function Users({ refreshKey, onChanged }) {
       <div className="management-sections" aria-label="User Management sections">
         <button type="button" aria-pressed={section === "users"} disabled={busy} onClick={() => setSection("users")}>Users</button>
         <button type="button" aria-pressed={section === "approvers"} disabled={busy} onClick={() => setSection("approvers")}>Approver user</button>
+        <button type="button" aria-pressed={section === "assistants"} disabled={busy} onClick={() => setSection("assistants")}>Booking assistants</button>
         <button type="button" aria-pressed={section === "roles"} disabled={busy} onClick={() => setSection("roles")}>Roles</button>
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       {section === "roles" && <Roles roles={availableRoles} loading={loading} onChanged={setAvailableRoles} />}
-      <div className="page-enter" hidden={section !== "users" && section !== "approvers"}>
+      <div className="page-enter" hidden={section === "roles"}>
       <p className="department-status" role="status">{message}</p>
       <UsersTable
         key={section}
-        users={section === "approvers" ? approverUsers : regularUsers}
+        users={section === "assistants" ? assistantUsers : section === "approvers" ? approverUsers : regularUsers}
         departments={departments}
         companies={companies}
         organizeByCompany={section === "approvers"}
         loading={loading}
         busy={busy}
-        onCreate={() => create(section === "approvers")}
+        onCreate={() => create(section === "approvers", section === "assistants")}
         onEdit={edit}
         onDelete={confirmDelete}
-        heading={section === "approvers" ? "Approver users" : "Users"}
-        description={section === "approvers" ? "Users with approval access who can review assigned transport requests." : "Manage users, departments and assigned approvers."}
-        addLabel={section === "approvers" ? "Add approver user" : "Add user"}
-        emptyTitle={section === "approvers" ? "No approver users yet" : undefined}
-        emptyDescription={section === "approvers" ? "Add an approver user to give them approval access." : undefined}
+        heading={section === "assistants" ? "Booking assistants" : section === "approvers" ? "Approver users" : "Users"}
+        description={section === "assistants" ? "Manage assistants who book approved requests in PickMe. All booking assistants share the approved request queue." : section === "approvers" ? "Users with approval access who can review assigned transport requests." : "Manage users, departments and assigned approvers."}
+        addLabel={section === "assistants" ? "Add booking assistant" : section === "approvers" ? "Add approver user" : "Add user"}
+        emptyTitle={section === "assistants" ? "No booking assistants yet" : section === "approvers" ? "No approver users yet" : undefined}
+        emptyDescription={section === "assistants" ? "Add an assistant to handle approved transport requests." : section === "approvers" ? "Add an approver user to give them approval access." : undefined}
       />
       <dialog ref={editor} className="user-editor-dialog" aria-labelledby="user-editor-title" onCancel={(event) => { if (busy) event.preventDefault(); else reset(); }}>
         <header className="user-dialog-heading"><div><span className="eyebrow accent">PEOPLE & ACCESS</span><h2 id="user-editor-title">{editing ? "Edit user" : "Create user"}</h2></div><button type="button" className="user-dialog-close" aria-label="Close user form" disabled={busy} onClick={closeEditor}>&times;</button></header>
@@ -217,7 +222,7 @@ export default function Users({ refreshKey, onChanged }) {
               </div> : <p className="muted">Create a company in Department Management first.</p>}
             </fieldset>
             {assignmentsRequired && (!form.departmentIds.length || !form.companyIds.length) && <p className="info">Select at least one department and company for an approver user.</p>}
-            {!assignmentsRequired && <fieldset className="user-assignment" disabled={busy || loading}>
+            {!assignmentsRequired && form.sidebarAccess.includes("REQUESTS") && <fieldset className="user-assignment" disabled={busy || loading}>
               <legend>Assigned approvers</legend>
               <p className="muted">Active approvers matching both the selected departments and companies are selected automatically. Uncheck anyone you do not want to assign.</p>
               {!form.departmentIds.length || !form.companyIds.length ? <p className="info">Select a department and company to see matching approvers.</p>
@@ -231,7 +236,7 @@ export default function Users({ refreshKey, onChanged }) {
               <legend>Sidebar access</legend>
               <p className="muted">Choose the sections this user can open. Approval and booking access also allow the actions described below.</p>
               <div className="access-options">{staffModules.map((module) => <label className="access-option" key={module.key}><input type="checkbox" checked={form.sidebarAccess.includes(module.key)} onChange={() => toggleAccess(module.key)} /><span><strong>{module.title}</strong><small>{module.description}</small></span></label>)}</div>
-              <button type="button" className="text-button" onClick={() => setForm((current) => ({ ...current, sidebarAccess: [...defaultAccess("EMPLOYEE"), ...(section === "approvers" ? ["APPROVALS"] : [])] }))}>Reset access</button>
+              <button type="button" className="text-button" onClick={() => setForm((current) => ({ ...current, sidebarAccess: section === "assistants" ? ["DASHBOARD", "BOOKINGS", "HISTORY"] : [...defaultAccess("EMPLOYEE"), ...(section === "approvers" ? ["APPROVALS"] : [])] }))}>Reset access</button>
               {!form.sidebarAccess.length && <p className="info">This user can sign in but has no workspace sections until you grant access.</p>}
             </fieldset>
             <div className="user-dialog-actions">

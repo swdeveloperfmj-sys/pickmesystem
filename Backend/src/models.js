@@ -73,6 +73,7 @@ export const TransportRequest = mongoose.model("TransportRequest", new Schema({
   requestSharedAt: Date,
   approvalSharedAt: Date,
   bookingReference: String,
+  bookingAmount: { type: Number, min: 0.01 },
   driverDetails: String,
   bookingRecordedBy: { type: Schema.Types.ObjectId, ref: "User" },
   version: { type: Number, default: 0 },

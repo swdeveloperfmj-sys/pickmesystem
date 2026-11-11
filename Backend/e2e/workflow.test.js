@@ -527,7 +527,8 @@ test(
       await staffLogout();
       await staffLogin("booking.assistant");
       await page.getByRole("button", { name: "Book", exact: true }).click();
-      await page.getByLabel("PickMe booking reference", { exact: true }).fill("TEST-PICKME-001");
+      await page.getByLabel("PickMe booking reference (optional)", { exact: true }).fill("TEST-PICKME-001");
+      await page.getByLabel("Booking amount (LKR)", { exact: true }).fill("1500.50");
       await page.getByRole("checkbox", { name: /I checked completeness and approval/ }).check();
       await page.getByRole("button", { name: "Confirm action", exact: true }).click();
       await page.getByText("Booked", { exact: true }).waitFor();

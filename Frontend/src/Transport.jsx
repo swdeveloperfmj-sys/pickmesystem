@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import StaffSidebar from "./StaffSidebar";
+import RequestDetailsCard from "./RequestDetailsCard";
 import { staffModules } from "./access";
 
 const label = (value) => value?.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
@@ -172,11 +173,11 @@ function RequestForm({ user, approvers, departments, record, onClose, onSaved })
 
 function ActionForm({ record, action, base, onClose, onSaved }) {
   const [note, setNote] = useState(""); const [checked, setChecked] = useState(false); const [route, setRoute] = useState(false); const [completion, setCompletion] = useState(false);
-  const [reference, setReference] = useState(""); const [driver, setDriver] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+  const [reference, setReference] = useState(""); const [amount, setAmount] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError("");
     try {
-      const data = await api(`${base}/requests/${record.id}/action`, { action, version: record.version, note, approvalShared: checked, externalActionConfirmed: checked, bookingReference: reference, driverDetails: driver, routeVerified: route, completionMessageChecked: completion });
+      const data = await api(`${base}/requests/${record.id}/action`, { action, version: record.version, note, approvalShared: checked, externalActionConfirmed: checked, ...(action === "BOOK" ? { bookingReference: reference, bookingAmount: Number(amount) } : {}), routeVerified: route, completionMessageChecked: completion });
       onSaved(data.request); onClose();
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
@@ -185,8 +186,8 @@ function ActionForm({ record, action, base, onClose, onSaved }) {
     <h3>{label(action)}</h3>{error && <div className="error" role="alert">{error}</div>}
     {["CANCEL", "REQUEST_CHANGE", "REPORT_ISSUE"].includes(action) && <p className="info">Inform the Administrative Assistant immediately through your designated communication channel. Saving here does not send a notification or change a PickMe booking.</p>}
     <fieldset className="transport-fields" disabled={busy}>
-      <label>Notes / reason<textarea value={note} onChange={(event) => setNote(event.target.value)} required={requiresReason} minLength={requiresReason ? 2 : undefined} maxLength={1000} /></label>
-      {action === "BOOK" && <><label>PickMe booking reference<input value={reference} onChange={(event) => setReference(event.target.value)} required maxLength={100} /></label><label>Driver / tracking details (optional)<textarea value={driver} onChange={(event) => setDriver(event.target.value)} maxLength={500} /></label></>}
+      {action !== "BOOK" && <label>Notes / reason<textarea value={note} onChange={(event) => setNote(event.target.value)} required={requiresReason} minLength={requiresReason ? 2 : undefined} maxLength={1000} /></label>}
+      {action === "BOOK" && <><label>PickMe booking reference (optional)<input value={reference} onChange={(event) => setReference(event.target.value)} maxLength={100} /></label><label>Booking amount (LKR)<input type="number" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required min="0.01" max="999999999.99" step="0.01" placeholder="e.g. 1500.00" /></label></>}
       {["APPROVE", "BOOK", "CONFIRM_CANCEL", "CONFIRM_CHANGE"].includes(action) && <label className="check-label"><input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} required />{action === "APPROVE" ? "I checked need, justification and vehicle eligibility and shared my approval in WhatsApp." : action === "BOOK" ? "I checked completeness and approval, and completed the booking in PickMe." : "I have resolved/cancelled the existing booking in PickMe and informed the requester."}</label>}
       {action === "COMPLETE" && <><label className="check-label"><input type="checkbox" checked={route} onChange={(event) => setRoute(event.target.checked)} required />I verified the pickup location, route and destination.</label><label className="check-label"><input type="checkbox" checked={completion} onChange={(event) => setCompletion(event.target.checked)} required />I checked the trip completion message.</label></>}
       <div className="department-actions"><button className="primary">{busy ? "Saving…" : "Confirm action"}</button><button className="secondary" type="button" onClick={onClose}>Cancel action</button></div>
@@ -201,12 +202,37 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
   const [records, setRecords] = useState([]); const [approvers, setApprovers] = useState([]); const [departments, setDepartments] = useState([]); const [error, setError] = useState(""); const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(null); const [action, setAction] = useState(null); const [notice, setNotice] = useState("");
   const [approvalTab, setApprovalTab] = useState("pending");
+  const [bookingTab, setBookingTab] = useState("waiting");
   async function load() {
     setLoading(true); setError("");
     try { const [data, people, teams] = await Promise.all([api(`${base}/requests`), api(`${base}/approvers`), api(`${base}/departments`)]); setRecords(data.requests); setApprovers(people.approvers.filter((person) => person.id !== user?.id)); setDepartments(teams.departments); }
     catch (err) { setError(err.message); } finally { setLoading(false); }
   }
   useEffect(() => { load(); }, [refreshKey, base]);
+  useEffect(() => {
+    if (section !== "Booking Management" || action || form) return;
+    let disposed = false;
+    let inFlight = false;
+    async function refreshQueue() {
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      try {
+        const data = await api(`${base}/requests`);
+        if (!disposed) { setRecords(data.requests); setError(""); }
+      } catch (err) {
+        if (!disposed) setError(err.message);
+      } finally { inFlight = false; }
+    }
+    const timer = setInterval(refreshQueue, 10000);
+    window.addEventListener("focus", refreshQueue);
+    document.addEventListener("visibilitychange", refreshQueue);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+      window.removeEventListener("focus", refreshQueue);
+      document.removeEventListener("visibilitychange", refreshQueue);
+    };
+  }, [section, base, action, form]);
   useEffect(() => {
     const dialog = requestDialog.current;
     if (!dialog) return;
@@ -237,7 +263,7 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
   useEffect(() => {
     if (onStats && !loading && !error) onStats({ total: records.length, pending: records.filter((record) => record.status === "PENDING_APPROVAL").length, active: records.filter((record) => ["APPROVED", "BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"].includes(record.status)).length, completed: records.filter((record) => record.status === "COMPLETED").length });
   }, [records, loading, error, onStats]);
-  function saved(record) { setRecords((items) => [record, ...items.filter((item) => item.id !== record.id)]); setNotice(`Request ${label(record.status)}.`); onChanged(); }
+  function saved(record) { setRecords((items) => [record, ...items.filter((item) => item.id !== record.id)]); setNotice(`Request ${label(record.status)}.`); window.dispatchEvent(new Event("transport-request-changed")); onChanged(); }
   const permissions = user?.permissions || { monitor: true };
   const requestBlockedReason = !permissions.request ? "Sign in with your staff account to create a request."
     : !user.sopAcknowledgedAt ? "Read guidelines and acknowledge the SOP to create a request." : "";
@@ -257,12 +283,17 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
       }
       return record.status === "PENDING_APPROVAL";
     }
-    if (section === "Booking Management") return ["APPROVED", "BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"].includes(record.status);
+    if (section === "Booking Management") return (bookingTab === "waiting" ? ["APPROVED"] : bookingTab === "active" ? ["BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"] : ["COMPLETED", "CANCELLED"]).includes(record.status);
     if (!admin) return String(record.requester) === user.id;
     return true;
   });
   if (["Reports", "Request History"].includes(section)) return <section className="transport-form page-enter" aria-label={section}><h2>{section}</h2>{error && <div className="error" role="alert">{error}</div>}{loading ? <p role="status">Loading requests...</p> : section === "Reports" ? <><p className="muted">Summary of requests your account is permitted to view.</p><div className="staff-overview">{[["Total requests", records.length], ["Awaiting approval", records.filter((record) => record.status === "PENDING_APPROVAL").length], ["Active trips", records.filter((record) => ["APPROVED", "BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"].includes(record.status)).length], ["Completed", records.filter((record) => record.status === "COMPLETED").length]].map(([title, count]) => <article className="staff-stat" key={title}><div><span>{title}</span><strong>{count}</strong></div></article>)}</div></> : <><p className="muted">Activity on requests your account is permitted to view.</p>{records.length ? records.map((record) => <article className="request-card" key={record.id}><h3>{record.pickup} to {record.destination}</h3><p>{record.requesterDetails.fullName}</p><ol className="staff-history">{record.history.map((item, index) => <li key={index}><strong>{label(item.action)}</strong> &middot; {item.actorName} &middot; {displayDate(item.at)}<p>{item.note}</p></li>)}</ol></article>) : <p>No request activity yet.</p>}</>}</section>;
   return <section aria-label="Transport workflow">
+    {section === "Booking Management" && <>
+      <h2>PickMe booking management</h2>
+      <p className="muted">Approved requests arrive here automatically. Book the trip in PickMe, then record its booking reference here. This list updates every 10 seconds.</p>
+      <div className="management-sections" aria-label="Booking sections">{[["waiting", "Awaiting booking", ["APPROVED"]], ["active", "Active bookings", ["BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"]], ["history", "Completed / cancelled", ["COMPLETED", "CANCELLED"]]].map(([key, title, statuses]) => <button type="button" key={key} aria-pressed={bookingTab === key} onClick={() => setBookingTab(key)}>{title} ({records.filter((record) => statuses.includes(record.status)).length})</button>)}</div>
+    </>}
     {section === "Approval Management" && <div className="transport-toolbar"><div className="management-sections" role="tablist" aria-label="Approval sections"><button type="button" role="tab" aria-selected={approvalTab === "pending"} aria-pressed={approvalTab === "pending"} onClick={() => setApprovalTab("pending")}>Pending {approvalPendingCount > 0 ? `(${approvalPendingCount})` : ""}</button><button type="button" role="tab" aria-selected={approvalTab === "approved"} aria-pressed={approvalTab === "approved"} onClick={() => setApprovalTab("approved")}>Approved {approvalApprovedCount > 0 ? `(${approvalApprovedCount})` : ""}</button><button type="button" role="tab" aria-selected={approvalTab === "rejected"} aria-pressed={approvalTab === "rejected"} onClick={() => setApprovalTab("rejected")}>Rejected {approvalRejectedCount > 0 ? `(${approvalRejectedCount})` : ""}</button></div></div>}
     {section !== "Approval Management" && !admin && !dashboardSection && !["Reports", "Request History"].includes(section) && permissions.request && <div className="transport-toolbar"><div className="staff-new-request"><button className="primary" disabled={!!requestBlockedReason} aria-describedby={requestBlockedReason ? "request-setup-help" : undefined} onClick={() => { setForm({}); setAction(null); }}>New request</button>{requestBlockedReason && <p id="request-setup-help">{requestBlockedReason}</p>}</div></div>}
     {admin && <p className="info">Monitoring view. Employees submit their own requests at <Link to="/login">Staff sign in</Link>. Approvers and the Administrative Assistant perform actions from their own accounts.</p>}
@@ -270,14 +301,13 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
     <dialog ref={requestDialog} className="request-dialog" aria-label={form?.id ? "Edit transport request" : "New transport request"} onCancel={(event) => { event.preventDefault(); setForm(null); }} onFocusCapture={(event) => { if (window.matchMedia("(max-width: 700px)").matches) window.setTimeout(() => event.target.scrollIntoView({ block: "center", behavior: "smooth" }), 250); }}>
       {form && <RequestForm key={form.id || "new"} record={form.id ? form : null} user={user} approvers={approvers} departments={departments} onClose={() => setForm(null)} onSaved={saved} />}
     </dialog>
-    {!dashboardSection && (loading ? <p role="status">Loading requests…</p> : !shown.length ? <div className="empty-state staff-request-empty"><span className="staff-empty-icon"><WorkspaceIcon type={section === "Approval Management" ? (approvalTab === "approved" ? "check" : approvalTab === "rejected" ? "clock" : "check") : "route"} size={28} /></span><h2>{section === "Approval Management" ? (approvalTab === "approved" ? "No approved requests yet" : approvalTab === "rejected" ? "No rejected requests yet" : "No pending approvals") : "No requests yet"}</h2><p className="muted">{section === "Approval Management" ? (approvalTab === "approved" ? "Requests you approve will appear here in your approval history." : approvalTab === "rejected" ? "Requests you reject or return will appear here in your history." : "Requests waiting for your approval will appear here.") : "Once a request is submitted, its approval and trip updates will appear here."}</p></div> : <div className="request-list"><div className="request-list-header"><span>Journey</span><span>Requester</span><span>Request details</span><span>Purpose</span><span>Trip information</span><span>Actions</span></div>{shown.map((record) => {
+    {!dashboardSection && (loading ? <p role="status">Loading requests…</p> : !shown.length ? <div className="empty-state staff-request-empty"><span className="staff-empty-icon"><WorkspaceIcon type={section === "Approval Management" ? (approvalTab === "approved" ? "check" : approvalTab === "rejected" ? "clock" : "check") : "route"} size={28} /></span><h2>{section === "Approval Management" ? (approvalTab === "approved" ? "No approved requests yet" : approvalTab === "rejected" ? "No rejected requests yet" : "No pending approvals") : "No requests yet"}</h2><p className="muted">{section === "Approval Management" ? (approvalTab === "approved" ? "Requests you approve will appear here in your approval history." : approvalTab === "rejected" ? "Requests you reject or return will appear here in your history." : "Requests waiting for your approval will appear here.") : "Once a request is submitted, its approval and trip updates will appear here."}</p></div> : <div className="ride-details-list">{shown.map((record) => {
       const own = !admin && String(record.requester) === user.id && permissions.request;
       const assigned = !admin && reviewsRequest(record, user) && permissions.approve;
       const choices = [];
       if (assigned && record.status === "PENDING_APPROVAL") choices.push("APPROVE", "REJECT", "RETURN");
       if (!admin && permissions.book) {
         if (record.status === "APPROVED") choices.push("BOOK");
-        if (["PENDING_APPROVAL", "APPROVED"].includes(record.status) && !choices.includes("RETURN")) choices.push("RETURN");
         if (record.status === "CANCELLATION_REQUESTED") choices.push("CONFIRM_CANCEL");
         if (record.status === "CHANGE_REQUESTED") choices.push("CONFIRM_CHANGE");
       }
@@ -286,20 +316,13 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
         if (["BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"].includes(record.status)) choices.push("REPORT_ISSUE");
         if (!["COMPLETED", "CANCELLED", "CANCELLATION_REQUESTED"].includes(record.status)) choices.push("CANCEL");
       }
-      return <article key={record.id} className="request-card request-card-modern" aria-label={`Request ${record.id}`}>
-        <div className="request-heading"><div><span className="eyebrow accent">{label(record.service)} · {label(record.vehicle)}</span><h2>{record.pickup} → {record.destination}</h2></div><span className="badge">{label(record.status)}</span></div>
-        <p><strong>{record.requesterDetails.fullName}</strong> · {record.requesterDetails.designation} · {record.requesterDetails.contact}</p>
-        <p className="muted">{record.requesterDetails.department}{record.requesterDetails.workLocation ? ` · ${record.requesterDetails.workLocation}` : ""}<br />Pickup: {displayDate(record.pickupAt)} (Sri Lanka)<br />{record.approvalSharedAt ? "Approved by" : "Assigned approvers"}: {record.approverDetails.approvedBy || record.approverDetails.fullName}{record.approverDetails.designation ? ` · ${record.approverDetails.designation}` : ""}</p>
-        <p className="request-copy"><strong>Official purpose / justification:</strong> {record.purpose || record.justification}</p>
-        {record.stopover && <p className="muted">Stopover: {record.stopover}</p>}
-        <p className="muted">{record.service === "RIDE" ? `Passengers (${record.passengers.length}): ${record.passengers.map((person) => `${person.name} (${person.designation})`).join(", ")}` : `Receiver: ${record.receiverName} · ${record.receiverContact}. Items/samples: ${record.itemDetails}`}</p>
-        {record.bookingReference && <div className="info">PickMe reference: {record.bookingReference}<br />{record.driverDetails}</div>}
-        {record.status === "REJECTED" && record.history?.slice().reverse().find((item) => item.action === "REJECT")?.note && <p className="error" style={{ margin: "8px 0" }}><strong>Rejection reason:</strong> {record.history.slice().reverse().find((item) => item.action === "REJECT")?.note}</p>}
-        {record.status === "RETURNED" && record.history?.slice().reverse().find((item) => item.action === "RETURN")?.note && <p className="info" style={{ margin: "8px 0" }}><strong>Return reason:</strong> {record.history.slice().reverse().find((item) => item.action === "RETURN")?.note}</p>}
-        <div className="department-actions">{own && ["PENDING_APPROVAL", "RETURNED", "REJECTED"].includes(record.status) && <button className="secondary" onClick={() => setForm(record)}>Edit request</button>}{choices.map((choice) => <button className="secondary" key={choice} onClick={() => { setAction({ id: record.id, value: choice }); setForm(null); }}>{label(choice)}</button>)}</div>
-        {action?.id === record.id && <ActionForm key={`${record.id}-${action.value}`} record={record} action={action.value} base={base} onClose={() => setAction(null)} onSaved={saved} />}
-        {record.history && record.history.length > 0 && <details className="request-history"><summary>Activity history ({record.history.length})</summary><ol>{record.history.map((item, index) => <li key={index}><strong>{label(item.action)}</strong> &middot; {item.actorName} &middot; {displayDate(item.at)}{item.note ? <p>{item.note}</p> : null}</li>)}</ol></details>}
-      </article>;
+      return <RequestDetailsCard key={record.id} record={record} actions={<>
+        {own && ["PENDING_APPROVAL", "RETURNED", "REJECTED"].includes(record.status) && <button className="secondary" onClick={() => setForm(record)}>Edit request</button>}
+        {choices.map((choice) => <button className={choice === "BOOK" || choice === "APPROVE" ? "ride-primary-action" : "secondary"} key={choice} onClick={() => { setAction({ id: record.id, value: choice }); setForm(null); }}>{label(choice)}</button>)}
+        {!choices.length && !(own && ["PENDING_APPROVAL", "RETURNED", "REJECTED"].includes(record.status)) && <span className="ride-caption">No actions available</span>}
+      </>}>
+        {action?.id === record.id && <ActionForm key={record.id + action.value} record={record} action={action.value} base={base} onClose={() => setAction(null)} onSaved={saved} />}
+      </RequestDetailsCard>;
     })}</div>)}
   </section>;
 }
