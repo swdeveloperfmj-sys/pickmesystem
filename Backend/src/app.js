@@ -68,7 +68,6 @@ const departmentInput = z.object({
   name: z.string().trim().min(2).max(100).regex(/^[^<>\p{Cc}]+$/u)
     .transform((value) => value.replace(/\s+/g, " ")),
   description: z.string().trim().max(500).default(""),
-  budget: z.number().finite().min(0).max(1000000000000).default(0),
 }).strict();
 const roleInput = z.object({
   name: z.string().trim().min(2).max(100).regex(/^[^<>\p{Cc}]+$/u)
@@ -118,7 +117,6 @@ const publicDepartment = (department) => ({
   id: department.id,
   name: department.name,
   description: department.description,
-  budget: department.budget || 0,
   createdAt: department.createdAt,
   updatedAt: department.updatedAt,
 });
@@ -612,15 +610,22 @@ export function createApp({ config, mailer, limits = true }) {
   const companyInput = z.object({
     name: z.string().trim().min(2).max(100).regex(/^[^<>\p{Cc}]+$/u),
     description: z.string().trim().max(500).default(""),
+    budget: z.number().finite().min(0).max(1000000000000).optional(),
   }).strict();
-  const publicCompany = (company) => ({ id: company.id, name: company.name, description: company.description });
+  const publicCompany = (company) => ({ id: company.id, name: company.name, description: company.description, budget: company.budget || 0 });
   app.get("/api/super-admin/companies", async (_req, res) => {
     res.json({ companies: (await Company.find().sort({ nameKey: 1 })).map(publicCompany) });
   });
   async function saveCompany(req, res, update) {
     const id = update ? departmentId.parse(req.params.id) : undefined;
     const data = companyInput.parse(req.body);
-    const values = { ...data, nameKey: data.name.toLowerCase() };
+    const budget = data.budget ?? (update ? (await Company.findById(id))?.budget || 0 : 0);
+    const credit = await OrganizationBudget.findById("organization");
+    const allocated = await Company.aggregate([{ $match: update ? { _id: { $ne: new mongoose.Types.ObjectId(id) } } : {} }, { $group: { _id: null, total: { $sum: "$budget" } } }]);
+    if ((allocated[0]?.total || 0) + budget > (credit?.creditLimit || 0)) {
+      throw new ApiError(400, "Weekly company budgets cannot exceed the overall weekly credit limit. Set the overall weekly credit limit first.");
+    }
+    const values = { ...data, budget, nameKey: data.name.toLowerCase() };
     let company;
     try {
       company = update
@@ -695,17 +700,14 @@ export function createApp({ config, mailer, limits = true }) {
   });
   app.put("/api/super-admin/budget", async (req, res) => {
     const { creditLimit } = z.object({ creditLimit: z.number().finite().min(0).max(1000000000000) }).strict().parse(req.body);
-    const allocated = await Department.aggregate([{ $group: { _id: null, total: { $sum: "$budget" } } }]);
-    if ((allocated[0]?.total || 0) > creditLimit) throw new ApiError(400, "Weekly credit limit cannot be lower than the total weekly department budgets.");
+    const allocated = await Company.aggregate([{ $group: { _id: null, total: { $sum: "$budget" } } }]);
+    if ((allocated[0]?.total || 0) > creditLimit) throw new ApiError(400, "Weekly credit limit cannot be lower than the total weekly company budgets.");
     const settings = await OrganizationBudget.findByIdAndUpdate("organization", { $set: { creditLimit } }, { upsert: true, returnDocument: "after", setDefaultsOnInsert: true });
     res.json({ creditLimit: settings.creditLimit });
   });
   async function saveDepartment(req, res, update) {
     const id = update ? departmentId.parse(req.params.id) : undefined;
     const data = departmentInput.parse(req.body);
-    const credit = await OrganizationBudget.findById("organization");
-    const allocated = await Department.aggregate([{ $match: update ? { _id: { $ne: new mongoose.Types.ObjectId(id) } } : {} }, { $group: { _id: null, total: { $sum: "$budget" } } }]);
-    if ((allocated[0]?.total || 0) + data.budget > (credit?.creditLimit || 0)) throw new ApiError(400, "Weekly department budgets cannot exceed the overall weekly credit limit. Set the overall weekly credit limit first.");
     const values = { ...data, nameKey: data.name.toLowerCase() };
     let department;
     try {

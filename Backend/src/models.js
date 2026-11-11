@@ -93,6 +93,7 @@ export const Company = mongoose.model("Company", new Schema({
   name: { type: String, required: true, trim: true, maxlength: 100 },
   nameKey: { type: String, required: true, unique: true },
   description: { type: String, default: "", maxlength: 500 },
+  budget: { type: Number, min: 0, default: 0 },
   assignmentVersion: { type: Number, default: 0, select: false },
 }, { timestamps: true }));
 export const Location = mongoose.model("Location", new Schema({

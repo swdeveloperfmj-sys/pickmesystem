@@ -129,6 +129,9 @@ export default function Users({ refreshKey, onChanged }) {
   const approverUsers = users.filter((user) =>
     (user.sidebarAccess ?? defaultAccess(user.role)).includes("APPROVALS"),
   );
+  const regularUsers = users.filter((user) =>
+    !(user.sidebarAccess ?? defaultAccess(user.role)).includes("APPROVALS"),
+  );
   const directoryRoles = [
     ...availableRoles,
     ...Object.entries(legacyRoleNames)
@@ -150,9 +153,11 @@ export default function Users({ refreshKey, onChanged }) {
       {availableRoles.length === 0 && !loading && <p className="info">Create a role in the Roles section before adding users.</p>}
       <UsersTable
         key={section}
-        users={section === "approvers" ? approverUsers : users}
+        users={section === "approvers" ? approverUsers : regularUsers}
         roles={directoryRoles}
         departments={departments}
+        companies={companies}
+        organizeByCompany={section === "approvers"}
         loading={loading}
         busy={busy}
         onCreate={() => create(section === "approvers")}

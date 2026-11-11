@@ -159,19 +159,33 @@ test("company CRUD is protected, validated, unique and persistent", async () => 
   await request(app).delete(`${base}/${missingId}`).expect(401);
   const verified = await complete();
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  await request(app).put("/api/super-admin/budget").set("Cookie", cookie)
+    .send({ creditLimit: 50000 }).expect(200);
   const created = await request(app).post(base).set("Cookie", cookie).send({ name: " Acme ", description: "Main office" }).expect(201);
   const id = created.body.company.id;
   assert.equal(created.body.company.name, "Acme");
+  assert.equal(created.body.company.budget, 0);
   await request(app).post(base).set("Cookie", cookie).send({ name: "acme" }).expect(409);
-  for (const body of [{ name: "x" }, { name: "Valid", description: "x".repeat(501) }, { name: "Valid", role: "ADMIN" }]) {
+  for (const body of [{ name: "x" }, { name: "Valid", description: "x".repeat(501) }, { name: "Valid", budget: -1 }, { name: "Valid", budget: "100" }, { name: "Valid", role: "ADMIN" }]) {
     await request(app).post(base).set("Cookie", cookie).send(body).expect(400);
   }
-  await request(app).put(`${base}/${id}`).set("Cookie", cookie).send({ name: "Acme Group", description: "Updated" }).expect(200);
+  const updated = await request(app).put(`${base}/${id}`).set("Cookie", cookie)
+    .send({ name: "Acme Group", description: "Updated", budget: 30000 }).expect(200);
+  assert.equal(updated.body.company.budget, 30000);
   assert.equal((await Company.findById(id)).name, "Acme Group");
+  const second = await request(app).post(base).set("Cookie", cookie)
+    .send({ name: "Northwind", budget: 20000 }).expect(201);
+  assert.equal(second.body.company.budget, 20000);
+  await request(app).put(`${base}/${second.body.company.id}`).set("Cookie", cookie)
+    .send({ name: "Northwind", budget: 20001 }).expect(400);
+  await request(app).put("/api/super-admin/budget").set("Cookie", cookie)
+    .send({ creditLimit: 49999 }).expect(400);
   const list = await request(app).get(base).set("Cookie", cookie).expect(200);
-  assert.deepEqual(list.body.companies.map((item) => item.name), ["Acme Group"]);
+  assert.deepEqual(list.body.companies.map((item) => item.name), ["Acme Group", "Northwind"]);
+  assert.deepEqual(list.body.companies.map((item) => item.budget), [30000, 20000]);
   await request(app).delete(`${base}/bad-id`).set("Cookie", cookie).expect(400);
   await request(app).put(`${base}/${missingId}`).set("Cookie", cookie).send({ name: "Valid" }).expect(404);
+  await request(app).delete(`${base}/${second.body.company.id}`).set("Cookie", cookie).expect(204);
   await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(204);
   await request(app).delete(`${base}/${id}`).set("Cookie", cookie).expect(404);
   assert.equal(await Company.countDocuments(), 0);
