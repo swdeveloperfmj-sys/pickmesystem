@@ -530,6 +530,15 @@ function Dashboard() {
       else setError(err.message);
     }
   }
+  // Lightweight stats-only refresh — does NOT re-mount child components
+  async function refreshStats() {
+    try {
+      const data = await api("/super-admin/dashboard/stats");
+      setStats(data);
+    } catch {
+      // silent — child already shows its own error if needed
+    }
+  }
   useEffect(() => {
     load();
   }, []);
@@ -713,7 +722,7 @@ function Dashboard() {
           ) : section === "Department Management" ? (
             <Departments refreshKey={departmentRefresh} onChanged={load} />
           ) : section === "User Management" ? (
-            <Users refreshKey={departmentRefresh} onChanged={load} />
+            <Users refreshKey={departmentRefresh} onChanged={refreshStats} />
           ) : ["Transport Requests", "Approval Management", "Booking Management"].includes(section) ? (
             <TransportPanel admin section={section} refreshKey={departmentRefresh} onChanged={load} />
           ) : (
