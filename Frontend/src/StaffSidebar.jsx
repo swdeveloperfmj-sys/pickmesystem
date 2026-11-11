@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { staffModules } from "./access";
+import usePendingApprovals from "./usePendingApprovals";
 
 export default function StaffSidebar({ user, Brand, section, onSelect, onLogout, Icon, collapsed, setCollapsed }) {
   const [open, setOpen] = useState(false);
+  const pendingApprovals = usePendingApprovals(user);
   useEffect(() => {
     if (!open) return;
     const escape = (event) => { if (event.key === "Escape") { setOpen(false); document.querySelector(".menu-toggle")?.focus(); } };
@@ -18,7 +20,11 @@ export default function StaffSidebar({ user, Brand, section, onSelect, onLogout,
       </div>
       <div className={`sidebar-menu${open ? " is-open" : ""}`} id="staff-navigation">
         <span className="nav-label">YOUR WORKSPACE</span>
-        <nav aria-label="Staff workspace">{staffModules.filter((module) => user.sidebarAccess.includes(module.key)).map((module) => <button key={module.key} type="button" title={module.title} aria-label={module.title} aria-current={section === module.key ? "page" : undefined} className={section === module.key ? "active" : ""} onClick={() => { onSelect(module.key); setCollapsed(false); setOpen(false); }}><span aria-hidden="true"><Icon type={module.icon} size={19} /></span><span className="nav-text">{module.title}</span></button>)}</nav>
+        <nav aria-label="Staff workspace">{staffModules.filter((module) => user.sidebarAccess.includes(module.key)).map((module) => {
+          const pending = module.key === "APPROVALS" ? pendingApprovals : 0;
+          const accessibleTitle = pending ? `${module.title}, ${pending} pending ${pending === 1 ? "request" : "requests"}` : module.title;
+          return <button key={module.key} type="button" title={accessibleTitle} aria-label={accessibleTitle} aria-current={section === module.key ? "page" : undefined} className={`${section === module.key ? "active" : ""}${pending ? " has-pending-approvals" : ""}`} onClick={() => { onSelect(module.key); setCollapsed(false); setOpen(false); }}><span aria-hidden="true"><Icon type={module.icon} size={19} /></span><span className="nav-text">{module.title}</span>{pending > 0 && <span className="approval-notification" aria-hidden="true">{pending > 99 ? "99+" : pending}</span>}</button>;
+        })}</nav>
         <div className="sidebar-bottom"><span className="avatar">{user.fullName[0]}</span><div><strong>{user.fullName}</strong><small>Staff workspace</small></div><button type="button" title="Logout" aria-label="Log out of workspace" onClick={onLogout}><Icon type="logout" size={18} /></button></div>
       </div>
     </aside>

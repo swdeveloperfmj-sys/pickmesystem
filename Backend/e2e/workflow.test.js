@@ -8,7 +8,7 @@ import bcrypt from "bcryptjs";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { chromium } from "playwright";
 import { createApp } from "../src/app.js";
-import { initializeDatabase, User, Department, TransportRequest } from "../src/models.js";
+import { initializeDatabase, User, Department, Company, TransportRequest } from "../src/models.js";
 
 test(
   "browser: initial setup → OTP → dashboard → logout → login, including mobile layout",
@@ -268,6 +268,7 @@ test(
         await page.getByRole("button", { name, exact: true }).click();
       }
       await selectSection("Department Management");
+      await page.getByRole("button", { name: "+ Create department", exact: true }).click();
       await page.getByLabel("Department name", { exact: true }).fill("Human Resources");
       await page.getByLabel("Description (optional)", { exact: true }).fill("People and culture");
       await page.getByRole("button", { name: "Create department", exact: true }).click();
@@ -287,15 +288,36 @@ test(
       await page.getByRole("switch", { name: "Dark mode" }).click();
       await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
       await page.screenshot({ path: `${artifactDir}/departments-dark-mobile.png`, fullPage: true });
+      await page.getByRole("button", { name: "Companies", exact: true }).click();
+      await page.getByRole("button", { name: "+ Create company", exact: true }).click();
+      await page.getByLabel("Company name", { exact: true }).fill("Acme Holdings");
+      await page.getByRole("button", { name: "Create company", exact: true }).click();
+      const company = page.getByRole("article", { name: "Acme Holdings", exact: true });
+      await company.getByRole("button", { name: "Edit", exact: true }).click();
+      await page.getByLabel("Company name", { exact: true }).fill("Acme Group");
+      await page.getByRole("button", { name: "Save changes", exact: true }).click();
+      const updatedCompany = page.getByRole("article", { name: "Acme Group", exact: true });
+      await updatedCompany.waitFor();
+      await checkResponsiveLayout();
+      await updatedCompany.getByRole("button", { name: "Delete", exact: true }).click();
+      await updatedCompany.getByRole("button", { name: "Confirm delete", exact: true }).click();
+      await page.getByText("Company deleted.", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Departments", exact: true }).click();
+      await page.getByRole("button", { name: "+ Create department", exact: true }).click();
       await page.getByLabel("Department name", { exact: true }).fill("Finance");
       await page.getByRole("button", { name: "Create department", exact: true }).click();
       await page.getByText("Department created.", { exact: true }).waitFor();
       await selectSection("User Management");
       await page.getByRole("button", { name: "Roles", exact: true }).click();
+      await page.getByRole("button", { name: "+ Create role", exact: true }).click();
       await page.getByLabel("Role name", { exact: true }).fill("Transport Coordinator");
-      await page.getByLabel("Role description (optional)", { exact: true }).fill("Coordinates company transport");
-      await page.getByRole("button", { name: "Create role", exact: true }).click();
-      await page.getByText("Role created. You can now assign it from the Users section.", { exact: true }).waitFor();
+      await page.getByLabel("Description (optional)", { exact: true }).fill("Coordinates company transport");
+      await page.getByRole("dialog", { name: "Create role", exact: true }).getByRole("button", { name: "Create role", exact: true }).click();
+      await page.getByText("Role created.", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "+ Create role", exact: true }).click();
+      await page.getByLabel("Role name", { exact: true }).fill("Manager");
+      await page.getByRole("dialog", { name: "Create role", exact: true }).getByRole("button", { name: "Create role", exact: true }).click();
+      await page.getByText("Role created.", { exact: true }).waitFor();
       await checkResponsiveLayout();
       await page.screenshot({ path: `${artifactDir}/roles-dark-desktop.png`, fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
@@ -308,6 +330,7 @@ test(
       await page.getByRole("button", { name: "Add user", exact: true }).click();
       await page.getByLabel("Full name", { exact: true }).fill("Jamie Silva");
       await page.getByLabel("Username", { exact: true }).fill("jamie.silva");
+      await page.getByLabel("Designation", { exact: true }).fill("Production Executive");
       assert.equal(await page.getByLabel("Email address", { exact: true }).count(), 0);
       await page.getByLabel("Contact number", { exact: true }).fill("0771234567");
       await page.getByLabel("Password", { exact: true }).fill("User12");
@@ -329,7 +352,7 @@ test(
       assert.equal(await page.getByRole("group", { name: "Sidebar access", exact: true }).getByRole("checkbox", { name: /^Reports/ }).isChecked(), true);
       assert.equal(await page.getByLabel("Contact number", { exact: true }).inputValue(), "0771234567");
       await page.getByLabel("Contact number", { exact: true }).fill("0777654321");
-      await page.getByLabel("Role", { exact: true }).selectOption("MANAGER");
+      await page.getByLabel("Role", { exact: true }).selectOption({ label: "Manager" });
       await page.getByLabel("Status", { exact: true }).selectOption("INACTIVE");
       await page.getByLabel("Department", { exact: true }).selectOption({ label: "Finance" });
       await page.setViewportSize({ width: 1440, height: 1000 });
@@ -354,7 +377,7 @@ test(
       await page.getByLabel("Search users", { exact: true }).fill("no-match-example");
       await page.getByText("No matching users", { exact: true }).waitFor();
       await page.getByRole("button", { name: "Clear filters", exact: true }).click();
-      await page.getByLabel("Filter by role", { exact: true }).selectOption("MANAGER");
+      await page.getByLabel("Filter by role", { exact: true }).selectOption({ label: "Manager" });
       assert.equal(await page.locator(".user-table tbody tr").count(), 1);
       await page.getByLabel("Filter by department", { exact: true }).selectOption({ label: "Finance" });
       await page.getByLabel("Filter by status", { exact: true }).selectOption("ACTIVE");
@@ -421,8 +444,9 @@ test(
       const transportDept = await Department.create({ name: "Transport Test", nameKey: "transport test" });
       const passwordHash = await bcrypt.hash("Staff123", 12);
       const common = { passwordHash, department: transportDept._id, contact: "0771234567" };
-      const staffRequester = await User.create({ ...common, fullName: "Request Employee", username: "request.employee", role: "EMPLOYEE", sidebarAccess: ["DASHBOARD", "REQUESTS", "REPORTS", "HISTORY"] });
-      const staffApprover = await User.create({ ...common, fullName: "Sales Approver", username: "sales.approver", role: "MANAGER" });
+      const transportCompany = await Company.create({ name: "Transport Co", nameKey: "transport co e2e" });
+      const staffApprover = await User.create({ ...common, fullName: "Sales Approver", username: "sales.approver", role: "MANAGER", departments: [transportDept._id], companies: [transportCompany._id], company: transportCompany._id });
+      const staffRequester = await User.create({ ...common, fullName: "Request Employee", username: "request.employee", role: "EMPLOYEE", sidebarAccess: ["DASHBOARD", "REQUESTS", "REPORTS", "HISTORY"], departments: [transportDept._id], companies: [transportCompany._id], company: transportCompany._id, approvers: [staffApprover._id] });
       await User.create({ ...common, fullName: "Booking Assistant", username: "booking.assistant", role: "OPERATOR" });
       async function staffLogin(username, password = "Staff123") {
         await page.goto(`${config.APP_ORIGIN}/login`);
@@ -470,9 +494,7 @@ test(
       assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "3");
       await page.getByLabel("Additional passengers (optional)", { exact: true }).fill("Person Two | Executive\n   ");
       assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "2");
-      await page.getByLabel("Department / work location", { exact: true }).fill("Factory 1");
-      await page.getByLabel("Approver designation", { exact: true }).fill("Sales Manager");
-      await page.getByLabel("Authorized approver", { exact: true }).selectOption(staffApprover.id);
+      await page.getByText("Assigned approvers: Sales Approver", { exact: true }).waitFor();
       const future = await page.evaluate(() => { const date = new Date(Date.now() + 3 * 3600000); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); });
       await page.getByLabel("Pickup date and time", { exact: true }).fill(future);
       await page.getByLabel("Pickup location", { exact: true }).fill("Factory 1");
@@ -505,7 +527,8 @@ test(
       await staffLogout();
       await staffLogin("booking.assistant");
       await page.getByRole("button", { name: "Book", exact: true }).click();
-      await page.getByLabel("PickMe booking reference", { exact: true }).fill("TEST-PICKME-001");
+      await page.getByLabel("PickMe booking reference (optional)", { exact: true }).fill("TEST-PICKME-001");
+      await page.getByLabel("Booking amount (LKR)", { exact: true }).fill("1500.50");
       await page.getByRole("checkbox", { name: /I checked completeness and approval/ }).check();
       await page.getByRole("button", { name: "Confirm action", exact: true }).click();
       await page.getByText("Booked", { exact: true }).waitFor();

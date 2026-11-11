@@ -6,13 +6,19 @@ const userSchema = new Schema(
     username: { type: String, required: true, unique: true, lowercase: true },
     email: { type: String, required() { return this.role === "SUPER_ADMIN"; }, lowercase: true },
     contact: { type: String, trim: true, maxlength: 30 },
-    designation: { type: String, default: "" },
+    designation: { type: String, default: "", maxlength: 100 },
     locationType: { type: String, enum: ["", "FACTORY", "HEAD_OFFICE", "SHOWROOM"], default: "" },
     workLocation: { type: String, default: "", maxlength: 150 },
     employeeCategory: { type: String, enum: ["EXECUTIVE_OR_BELOW", "MANAGER"], default: "EXECUTIVE_OR_BELOW" },
     sopAcknowledgedAt: { type: Date, default: null },
     passwordHash: { type: String, required: true, select: false },
     department: { type: Schema.Types.ObjectId, ref: "Department", default: null, index: true },
+    departments: [{ type: Schema.Types.ObjectId, ref: "Department" }],
+    company: { type: Schema.Types.ObjectId, ref: "Company", default: null, index: true },
+    location: { type: Schema.Types.ObjectId, ref: "Location", default: null, index: true },
+    companies: [{ type: Schema.Types.ObjectId, ref: "Company" }],
+    locations: [{ type: Schema.Types.ObjectId, ref: "Location" }],
+    approvers: { type: [{ type: Schema.Types.ObjectId, ref: "User" }], default: undefined },
     role: {
       type: String,
       match: /^(SUPER_ADMIN|ADMIN|EMPLOYEE|MANAGER|OPERATOR|CUSTOM_[a-f\d]{24})$/,
@@ -40,10 +46,12 @@ export const Role = mongoose.model("Role", new Schema({
   name: { type: String, required: true, maxlength: 100 },
   nameKey: { type: String, required: true, unique: true },
   description: { type: String, default: "", maxlength: 500 },
+  assignmentVersion: { type: Number, default: 0, select: false },
 }, { timestamps: true }));
 export const TransportRequest = mongoose.model("TransportRequest", new Schema({
   requester: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-  approver: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+  approver: { type: Schema.Types.ObjectId, ref: "User", index: true },
+  approvers: [{ type: Schema.Types.ObjectId, ref: "User", index: true }],
   requesterDetails: { type: Schema.Types.Mixed, required: true },
   approverDetails: { type: Schema.Types.Mixed, required: true },
   service: { type: String, enum: ["RIDE", "FLASH"], required: true },
@@ -65,6 +73,7 @@ export const TransportRequest = mongoose.model("TransportRequest", new Schema({
   requestSharedAt: Date,
   approvalSharedAt: Date,
   bookingReference: String,
+  bookingAmount: { type: Number, min: 0.01 },
   driverDetails: String,
   bookingRecordedBy: { type: Schema.Types.ObjectId, ref: "User" },
   version: { type: Number, default: 0 },
@@ -83,6 +92,19 @@ export const Department = mongoose.model(
     { timestamps: true },
   ),
 );
+export const Company = mongoose.model("Company", new Schema({
+  name: { type: String, required: true, trim: true, maxlength: 100 },
+  nameKey: { type: String, required: true, unique: true },
+  description: { type: String, default: "", maxlength: 500 },
+  budget: { type: Number, min: 0, default: 0 },
+  assignmentVersion: { type: Number, default: 0, select: false },
+}, { timestamps: true }));
+export const Location = mongoose.model("Location", new Schema({
+  name: { type: String, required: true, trim: true, maxlength: 100 },
+  nameKey: { type: String, required: true, unique: true },
+  description: { type: String, default: "", maxlength: 500 },
+  assignmentVersion: { type: Number, default: 0, select: false },
+}, { timestamps: true }));
 export const OrganizationBudget = mongoose.model("OrganizationBudget", new Schema({
   _id: String,
   creditLimit: { type: Number, min: 0, default: 0 },
@@ -127,6 +149,8 @@ export async function initializeDatabase() {
     SetupState.init(),
     AuditLog.init(),
     Department.init(),
+    Company.init(),
+    Location.init(),
     Role.init(),
     TransportRequest.init(),
   ]);
