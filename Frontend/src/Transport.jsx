@@ -59,7 +59,7 @@ export function SopSummary() {
       <li>Coordinate with the driver, verify pickup/route/destination and the completion message, and report changes, cancellations or delays immediately.</li>
       <li>HR must explain the SOP to new recruits and retain their acknowledgement in the personal file. This acknowledgement record supplements that process.</li>
     </ul>
-    <p className="muted">Enter your contact, department and location with each request. Your Super Administrator assigns the approvers for your account. Any of those approvers can accept a request; authorized booking staff record the external PickMe booking.</p>
+    <p className="muted">Enter your contact with each request. Department and designation come from your account. Your Super Administrator assigns the approvers for your account. Any of those approvers can accept a request; authorized booking staff record the external PickMe booking.</p>
   </section>;
 }
 
@@ -126,18 +126,18 @@ export function StaffWorkspace({ ThemeToggle, Brand }) {
 }
 
 function RequestForm({ user, approvers, departments, record, onClose, onSaved }) {
-  const [form, setForm] = useState(() => ({ ...blank, requesterContact: record?.requesterDetails.contact || user.contact || "", departmentId: user.departmentId || "", workLocation: record?.requesterDetails.workLocation || "",
+  const [form, setForm] = useState(() => ({ ...blank, requesterContact: record?.requesterDetails.contact || user.contact || "", departmentId: user.departmentId || "",
     ...(record ? { ...record, pickupAt: localDate(record.pickupAt), otherPassengers: record.passengers.filter((person) => person.name.toLowerCase() !== user.fullName.toLowerCase()).map((person) => person.name + " | " + person.designation).join("\n") } : {}) }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   function change(event) { const { name, value, type, checked } = event.target; setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value })); }
-  const passengers = [{ name: user.fullName, designation: "" }, ...form.otherPassengers.split("\n").filter((line) => line.trim()).map((line) => { const [name, ...designation] = line.split("|"); return { name: name.trim(), designation: designation.join("|").trim() }; })];
+  const passengers = [{ name: user.fullName, designation: user.designation || "" }, ...form.otherPassengers.split("\n").filter((line) => line.trim()).map((line) => { const [name, ...designation] = line.split("|"); return { name: name.trim(), designation: designation.join("|").trim() }; })];
   async function submit(event) {
     event.preventDefault();
     if (form.service === "RIDE" && Number(form.passengerCount) !== passengers.length) { setError("Passenger count must match you and the additional passengers listed below."); return; }
     setBusy(true); setError("");
     try {
-      const body = { requesterContact: form.requesterContact, departmentId: user.departmentId, workLocation: form.workLocation, passengerCount: form.service === "RIDE" ? Number(form.passengerCount) : 0, service: form.service, pickupAt: new Date(form.pickupAt).toISOString(), pickup: form.pickup, stopover: form.stopover, destination: form.destination, vehicle: form.vehicle, deliveryRoute: form.deliveryRoute, purpose: form.purpose, justification: form.purpose,
+      const body = { requesterContact: form.requesterContact, departmentId: user.departmentId, passengerCount: form.service === "RIDE" ? Number(form.passengerCount) : 0, service: form.service, pickupAt: new Date(form.pickupAt).toISOString(), pickup: form.pickup, stopover: form.stopover, destination: form.destination, vehicle: form.vehicle, deliveryRoute: form.deliveryRoute, purpose: form.purpose, justification: form.purpose,
         passengers: form.service === "RIDE" ? passengers : [], receiverName: form.service === "FLASH" ? form.receiverName : "", receiverContact: form.service === "FLASH" ? form.receiverContact : "", itemDetails: form.service === "FLASH" ? form.itemDetails : "", groupCarEligible: form.groupCarEligible };
       if (record) body.version = record.version;
       const data = await api(`/transport/requests${record ? `/${record.id}` : ""}`, body, record ? "PUT" : "POST");
@@ -150,9 +150,9 @@ function RequestForm({ user, approvers, departments, record, onClose, onSaved })
     <form onSubmit={submit}>
       <fieldset disabled={busy} className="transport-fields">
         <h3><span>01</span>Requester details</h3>
-        <div className="field-row"><label>Requester name<input value={user.fullName} readOnly /></label><label>Requester contact<input type="tel" name="requesterContact" value={form.requesterContact} onChange={change} required maxLength={30} /></label></div>
+        <div className="field-row"><label>Requester name<input value={user.fullName} readOnly /></label><label>Designation<input value={user.designation || "No designation assigned"} readOnly /></label></div>
+        <label>Requester contact<input type="tel" name="requesterContact" value={form.requesterContact} onChange={change} required maxLength={30} /></label>
         <label>Department<input value={user.department || "No department assigned"} readOnly required={!!user.departmentId} /></label>
-        <label>Department / work location<input name="workLocation" value={form.workLocation} onChange={change} required minLength={2} maxLength={150} placeholder="e.g. Factory 1, Colombo" /></label>
         <h3><span>02</span>Journey &amp; approval</h3>
         <div className="select-field"><label htmlFor="trip-service">Service</label><select id="trip-service" name="service" value={form.service} onChange={change}><option value="RIDE">PickMe Ride (passengers)</option><option value="FLASH">PickMe Flash (items/samples)</option></select></div>
         {approvers.length > 0 ? <p className="info">Assigned approvers: {approvers.map((person) => person.fullName).join(", ")}. Any of them can accept this request.</p> : <p className="error">No approver is assigned to your account. Ask your administrator to assign an approver before requesting transport.</p>}
@@ -273,7 +273,7 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
       return <article key={record.id} className="request-card request-card-modern" aria-label={`Request ${record.id}`}>
         <div className="request-heading"><div><span className="eyebrow accent">{label(record.service)} · {label(record.vehicle)}</span><h2>{record.pickup} → {record.destination}</h2></div><span className="badge">{label(record.status)}</span></div>
         <p><strong>{record.requesterDetails.fullName}</strong> · {record.requesterDetails.designation} · {record.requesterDetails.contact}</p>
-        <p className="muted">{record.requesterDetails.department} · {record.requesterDetails.workLocation}<br />Pickup: {displayDate(record.pickupAt)} (Sri Lanka)<br />{record.approvalSharedAt ? "Approved by" : "Assigned approvers"}: {record.approverDetails.approvedBy || record.approverDetails.fullName}{record.approverDetails.designation ? ` · ${record.approverDetails.designation}` : ""}</p>
+        <p className="muted">{record.requesterDetails.department}{record.requesterDetails.workLocation ? ` · ${record.requesterDetails.workLocation}` : ""}<br />Pickup: {displayDate(record.pickupAt)} (Sri Lanka)<br />{record.approvalSharedAt ? "Approved by" : "Assigned approvers"}: {record.approverDetails.approvedBy || record.approverDetails.fullName}{record.approverDetails.designation ? ` · ${record.approverDetails.designation}` : ""}</p>
         <p className="request-copy"><strong>Official purpose / justification:</strong> {record.purpose || record.justification}</p>
         {record.stopover && <p className="muted">Stopover: {record.stopover}</p>}
         <p className="muted">{record.service === "RIDE" ? `Passengers (${record.passengers.length}): ${record.passengers.map((person) => `${person.name} (${person.designation})`).join(", ")}` : `Receiver: ${record.receiverName} · ${record.receiverContact}. Items/samples: ${record.itemDetails}`}</p>

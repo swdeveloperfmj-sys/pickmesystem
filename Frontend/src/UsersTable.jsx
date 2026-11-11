@@ -29,7 +29,7 @@ export default function UsersTable({
     (!company || (company === "unassigned"
       ? !(user.companies?.length || user.companyId)
       : (user.companyIds || (user.companyId ? [user.companyId] : [])).includes(company))) &&
-    [user.fullName, user.username, user.contact, user.department?.name,
+    [user.fullName, user.username, user.designation, user.contact, user.department?.name,
       ...(user.departments || []).map((item) => item.name),
       ...(user.companies || []).map((item) => item.name),
       user.company?.name].some((value) => value?.toLowerCase().includes(search.trim().toLowerCase())));
@@ -39,7 +39,7 @@ export default function UsersTable({
   const initials = (name) => name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const renderPerson = (user) => <article className="tree-person" key={user.id}>
     <span className="user-avatar" aria-hidden="true">{initials(user.fullName)}</span>
-    <div className="tree-person-details"><strong title={user.fullName}>{user.fullName}</strong><span>@{user.username} · {user.contact || "No contact added"}</span>{(user.departments?.length || user.department || user.companies?.length || user.company || user.locations?.length || user.location) && <span>{[...(user.departments || (user.department ? [user.department] : [])).map((item) => item.name), ...(user.companies || (user.company ? [user.company] : [])).map((item) => item.name), ...(user.locations || (user.location ? [user.location] : [])).map((item) => item.name)].join(" · ")}</span>}<div className="tree-person-tags"><span className={`user-status-chip ${user.status === "ACTIVE" ? "is-active" : "is-inactive"}`}><i aria-hidden="true" />{user.status === "ACTIVE" ? "Active" : "Inactive"}</span><span className="user-sop">SOP {user.sopAcknowledgedAt ? "acknowledged" : "pending"}</span></div></div>
+    <div className="tree-person-details"><strong title={user.fullName}>{user.fullName}</strong><span>@{user.username}{user.designation ? ` · ${user.designation}` : ""} · {user.contact || "No contact added"}</span>{(user.departments?.length || user.department || user.companies?.length || user.company || user.locations?.length || user.location) && <span>{[...(user.departments || (user.department ? [user.department] : [])).map((item) => item.name), ...(user.companies || (user.company ? [user.company] : [])).map((item) => item.name), ...(user.locations || (user.location ? [user.location] : [])).map((item) => item.name)].join(" · ")}</span>}<div className="tree-person-tags"><span className={`user-status-chip ${user.status === "ACTIVE" ? "is-active" : "is-inactive"}`}><i aria-hidden="true" />{user.status === "ACTIVE" ? "Active" : "Inactive"}</span><span className="user-sop">SOP {user.sopAcknowledgedAt ? "acknowledged" : "pending"}</span></div></div>
     <div className="user-row-actions"><button type="button" className="user-edit" disabled={busy} onClick={() => onEdit(user)}>Edit</button><button type="button" className="user-delete" disabled={busy} onClick={() => onDelete(user)}>Delete</button></div>
   </article>;
   function clearFilters() { setSearch(""); setDepartment(""); setCompany(""); setStatus(""); setPage(1); }
@@ -66,7 +66,7 @@ export default function UsersTable({
         : <ul className="approver-directory-list">{filtered.map((user) => <li key={user.id}>
           <button type="button" className="approver-directory-person" disabled={busy} onClick={() => onEdit(user)} aria-label={`View or edit approver ${user.fullName}`}>
             <span className="user-avatar" aria-hidden="true">{initials(user.fullName)}</span>
-            <span className="approver-directory-details"><strong>{user.fullName}</strong><span>@{user.username}</span></span>
+            <span className="approver-directory-details"><strong>{user.fullName}</strong><span>@{user.username}{user.designation ? ` · ${user.designation}` : ""}</span></span>
             <span className={`user-status-chip ${user.status === "ACTIVE" ? "is-active" : "is-inactive"}`}><i aria-hidden="true" />{user.status === "ACTIVE" ? "Active" : "Inactive"}</span>
           </button>
         </li>)}</ul>}

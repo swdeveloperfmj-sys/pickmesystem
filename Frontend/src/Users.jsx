@@ -5,7 +5,7 @@ import UsersTable from "./UsersTable";
 import { staffModules, defaultAccess } from "./access";
 import { matchingApprovers, updateApproverSelection } from "./approvers.js";
 
-const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "", status: "ACTIVE", sidebarAccess: defaultAccess("") };
+const emptyForm = { fullName: "", username: "", designation: "", contact: "", password: "", role: "", status: "ACTIVE", sidebarAccess: defaultAccess("") };
 const emptyAssignments = { departmentIds: [], companyIds: [], approverIds: [] };
 
 export default function Users({ refreshKey, onChanged }) {
@@ -116,6 +116,7 @@ export default function Users({ refreshKey, onChanged }) {
     setForm({
       fullName: user.fullName,
       username: user.username,
+      designation: user.designation || "",
       contact: user.contact || "",
       password: "",
       role: user.role,
@@ -177,6 +178,9 @@ export default function Users({ refreshKey, onChanged }) {
             </label>
             <label htmlFor="user-username">Username
               <input id="user-username" name="username" value={form.username} onChange={change} required minLength={3} maxLength={40} pattern="[a-zA-Z0-9_.\-]+" autoCapitalize="none" disabled={busy || loading} />
+            </label>
+            <label htmlFor="user-designation">Designation
+              <input id="user-designation" name="designation" value={form.designation} onChange={change} required minLength={2} maxLength={100} placeholder="e.g. Production Executive" disabled={busy || loading} />
             </label>
             <label htmlFor="user-contact">Contact number
               <input id="user-contact" name="contact" type="tel" autoComplete="tel" value={form.contact} onChange={change} required minLength={7} maxLength={30} placeholder="e.g. 077 123 4567" disabled={busy || loading} />

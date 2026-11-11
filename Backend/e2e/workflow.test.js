@@ -330,6 +330,7 @@ test(
       await page.getByRole("button", { name: "Add user", exact: true }).click();
       await page.getByLabel("Full name", { exact: true }).fill("Jamie Silva");
       await page.getByLabel("Username", { exact: true }).fill("jamie.silva");
+      await page.getByLabel("Designation", { exact: true }).fill("Production Executive");
       assert.equal(await page.getByLabel("Email address", { exact: true }).count(), 0);
       await page.getByLabel("Contact number", { exact: true }).fill("0771234567");
       await page.getByLabel("Password", { exact: true }).fill("User12");
@@ -493,7 +494,6 @@ test(
       assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "3");
       await page.getByLabel("Additional passengers (optional)", { exact: true }).fill("Person Two | Executive\n   ");
       assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "2");
-      await page.getByLabel("Department / work location", { exact: true }).fill("Factory 1");
       await page.getByText("Assigned approvers: Sales Approver", { exact: true }).waitFor();
       const future = await page.evaluate(() => { const date = new Date(Date.now() + 3 * 3600000); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); });
       await page.getByLabel("Pickup date and time", { exact: true }).fill(future);

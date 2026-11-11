@@ -78,6 +78,7 @@ const departmentId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid department ID")
 const managedUserInput = z.object({
   fullName: registration.shape.fullName,
   username: registration.shape.username,
+  designation: z.string().trim().min(2).max(100).regex(/^[^<>\p{Cc}]+$/u),
   contact: z.string().trim().min(7).max(30)
     .regex(/^\+?[\d\s().-]+$/, "Enter a valid contact number")
     .refine((value) => { const digits = value.replace(/\D/g, ""); return digits.length >= 7 && digits.length <= 15; }, "Contact number must contain 7 to 15 digits"),
@@ -134,6 +135,7 @@ const publicUser = (user) => ({
   username: user.username,
   email: user.email,
   contact: user.contact || "",
+  designation: user.designation || "",
   role: user.role,
   status: user.status,
   isActive: user.isActive,

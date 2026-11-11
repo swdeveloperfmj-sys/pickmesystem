@@ -225,9 +225,10 @@ test("users can be created without a role or custom roles and keep explicit acce
   const verified = await complete();
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
   assert.equal(await Role.countDocuments(), 0);
-  const body = { fullName: "Normal User", username: "normal.user", contact: "0771234567", password: "Password123", status: "ACTIVE", departmentId: null, sidebarAccess: ["DASHBOARD", "REQUESTS"], approverIds: [] };
+  const body = { fullName: "Normal User", username: "normal.user", designation: "Executive", contact: "0771234567", password: "Password123", status: "ACTIVE", departmentId: null, sidebarAccess: ["DASHBOARD", "REQUESTS"], approverIds: [] };
   const created = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send(body).expect(201);
   assert.equal(created.body.user.role, "EMPLOYEE");
+  assert.equal(created.body.user.designation, "Executive");
   assert.deepEqual(created.body.user.sidebarAccess, body.sidebarAccess);
   await request(app).put(`/api/super-admin/users/${created.body.user.id}`).set("Cookie", cookie).send({ ...body, role: "EMPLOYEE", fullName: "Updated User" }).expect(200);
   const department = await Department.create({ name: "Finance", nameKey: "finance" });
@@ -244,7 +245,7 @@ test("normal users persist selected approvers and reject unrelated or inactive a
   const company = await Company.create({ name: "Acme", nameKey: "acme" });
   const other = await Company.create({ name: "Other", nameKey: "other" });
   const role = await Role.create({ name: "Staff", nameKey: "staff" });
-  const base = { fullName: "Test Person", username: "approver.one", contact: "0771234567", password: "Password123", role: `CUSTOM_${role.id}`, status: "ACTIVE", departmentId: department.id, departmentIds: [department.id], companyIds: [company.id], sidebarAccess: ["DASHBOARD", "APPROVALS"] };
+  const base = { fullName: "Test Person", username: "approver.one", designation: "Sales Manager", contact: "0771234567", password: "Password123", role: `CUSTOM_${role.id}`, status: "ACTIVE", departmentId: department.id, departmentIds: [department.id], companyIds: [company.id], sidebarAccess: ["DASHBOARD", "APPROVALS"] };
   const first = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send(base).expect(201);
   const second = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send({ ...base, username: "approver.two" }).expect(201);
   const member = { ...base, username: "normal.user", sidebarAccess: ["DASHBOARD", "REQUESTS"], approverIds: [first.body.user.id] };
@@ -317,7 +318,7 @@ test("user CRUD validates roles, credentials and department links while protecti
   const second = await Department.create({ name: "Finance", nameKey: "finance" });
   const employeeRole = await Role.create({ name: "Team Member", nameKey: "team member" });
   const managerRole = await Role.create({ name: "Team Lead", nameKey: "team lead" });
-  const data = { fullName: "Taylor Silva", username: "taylor.silva", contact: "0771234567", password: "User12", role: `CUSTOM_${employeeRole.id}`, status: "ACTIVE", departmentId: first.id };
+  const data = { fullName: "Taylor Silva", username: "taylor.silva", designation: "Executive", contact: "0771234567", password: "User12", role: `CUSTOM_${employeeRole.id}`, status: "ACTIVE", departmentId: first.id };
   const created = await request(app).post(base).set("Cookie", cookie).send(data).expect(201);
   const userId = created.body.user.id;
   assert.equal(created.body.user.department.name, "Engineering");
@@ -378,6 +379,7 @@ test("approver users can select multiple departments and companies without a loc
   const base = {
     fullName: "Alex Approver",
     username: "alex.approver",
+    designation: "Finance Manager",
     contact: "0771234567",
     password: "Approver123",
     role: `CUSTOM_${role.id}`,
@@ -452,7 +454,7 @@ test("department assignment and deletion cannot leave a dangling user reference"
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
   const department = await Department.create({ name: "Concurrent", nameKey: "concurrent" });
   const role = await Role.create({ name: "Race Tester", nameKey: "race tester" });
-  const data = { fullName: "Race Test", username: "race.test", contact: "+94 77 222 3333", password: "RacePassword!123", role: `CUSTOM_${role.id}`, status: "ACTIVE", departmentId: department.id };
+  const data = { fullName: "Race Test", username: "race.test", designation: "Executive", contact: "+94 77 222 3333", password: "RacePassword!123", role: `CUSTOM_${role.id}`, status: "ACTIVE", departmentId: department.id };
   const [assigned, removed] = await Promise.all([
     request(app).post("/api/super-admin/users").set("Cookie", cookie).send(data),
     request(app).delete(`/api/super-admin/departments/${department.id}`).set("Cookie", cookie),
@@ -495,7 +497,7 @@ test("custom roles are unique, protected, persistent and assignable without Supe
   await request(app).post(base).set("Cookie", cookie).send({ name: "transport lead" }).expect(409);
   await request(app).put(`${base}/${roleId}`).set("Cookie", cookie)
     .send({ name: "x" }).expect(400);
-  const userData = { fullName: "Sam Silva", username: "sam.silva", contact: "011 234 5678", password: "RolePassword!123", role, status: "ACTIVE", departmentId: null };
+  const userData = { fullName: "Sam Silva", username: "sam.silva", designation: "Executive", contact: "011 234 5678", password: "RolePassword!123", role, status: "ACTIVE", departmentId: null };
   await request(app).post("/api/super-admin/users").set("Cookie", cookie).send({ ...userData, role: "ADMIN" }).expect(400);
   const person = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send(userData).expect(201);
   assert.equal(person.body.user.role, role);
@@ -523,7 +525,7 @@ test("custom roles are unique, protected, persistent and assignable without Supe
   });
   const legacyUpdate = await request(app).put(`/api/super-admin/users/${legacy.id}`)
     .set("Cookie", cookie)
-    .send({ fullName: legacy.fullName, username: legacy.username, contact: legacy.contact, role: legacy.role, status: legacy.status, departmentId: null })
+    .send({ fullName: legacy.fullName, username: legacy.username, designation: "Executive", contact: legacy.contact, role: legacy.role, status: legacy.status, departmentId: null })
     .expect(200);
   assert.equal(legacyUpdate.body.user.role, "EMPLOYEE");
 });
@@ -553,7 +555,7 @@ test("SOP workflow collects request details without transport profiles and enfor
   const other = await loginStaff(outsider), wrongReviewer = await loginStaff(otherApprover), store = await loginStaff(showroom);
   const base = "/api/transport/requests";
   const pickupAt = new Date(Date.now() + 2 * 3600000).toISOString();
-  const body = { requesterDesignation: "Production Executive", requesterContact: "0771234567", departmentId: department.id, workLocation: "Factory 1", passengerCount: 1, service: "RIDE", pickupAt, pickup: "Factory 1", destination: "Head Office", vehicle: "THREE_WHEELER", purpose: "Official sample review", justification: "Required quality review", passengers: [{ name: requester.fullName, designation: "Production Executive" }] };
+  const body = { requesterDesignation: "Production Executive", requesterContact: "0771234567", departmentId: department.id, passengerCount: 1, service: "RIDE", pickupAt, pickup: "Factory 1", destination: "Head Office", vehicle: "THREE_WHEELER", purpose: "Official sample review", justification: "Required quality review", passengers: [{ name: requester.fullName, designation: "Production Executive" }] };
   await request(app).get(base).expect(401);
   await owner.get("/api/super-admin/users").expect(401);
   await owner.post(base).send(body).expect(400);
@@ -572,9 +574,9 @@ test("SOP workflow collects request details without transport profiles and enfor
   const submitted = await owner.post(base).send(body).expect(201);
   const record = submitted.body.request;
   assert.equal(record.requesterDetails.contact, body.requesterContact);
-  assert.equal(record.requesterDetails.designation, "");
+  assert.equal(record.requesterDetails.designation, "Production Executive");
   assert.deepEqual(record.approvers.map(String), [approver.id]);
-  assert.equal(record.requesterDetails.workLocation, "Factory 1");
+  assert.equal(record.requesterDetails.workLocation, "");
   assert.equal(record.passengerCount, 1);
   assert.equal(record.requesterDetails.department, "Production");
   assert.equal((await other.get(base)).body.requests.length, 0);
@@ -618,7 +620,7 @@ test("Super Admin sidebar grants persist, control staff actions, and revoke acce
   const team = await Department.create({ name: "Transport", nameKey: "transport" });
   const company = await Company.create({ name: "Transport Co", nameKey: "transport co" });
   const staffRole = await Role.create({ name: "Transport Staff", nameKey: "transport staff" });
-  const account = (username, sidebarAccess) => ({ fullName: username, username, contact: "0771234567", password: "Staff123", role: `CUSTOM_${staffRole.id}`, status: "ACTIVE", departmentId: null, sidebarAccess });
+  const account = (username, sidebarAccess) => ({ fullName: username, username, designation: "Executive", contact: "0771234567", password: "Staff123", role: `CUSTOM_${staffRole.id}`, status: "ACTIVE", departmentId: null, sidebarAccess });
   const ownerData = account("access.owner", ["DASHBOARD", "REQUESTS", "REPORTS"]);
   const reviewerData = {
     ...account("access.approver", ["DASHBOARD"]),
@@ -643,7 +645,7 @@ test("Super Admin sidebar grants persist, control staff actions, and revoke acce
   const owner = await login(ownerUser), reviewer = await login(reviewerUser), booker = await login(bookerUser);
   await owner.post("/api/transport/acknowledge").send({ acknowledged: true }).expect(200);
   await owner.put(`${base}/${ownerUser.id}`).send({ ...ownerData, sidebarAccess: ["BOOKINGS"] }).expect(401);
-  const body = { requesterDesignation: "Executive", requesterContact: "0771234567", departmentId: team.id, workLocation: "Office", passengerCount: 1, service: "RIDE", pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Official review", justification: "Production review", passengers: [{ name: ownerUser.fullName, designation: "Executive" }] };
+  const body = { requesterDesignation: "Executive", requesterContact: "0771234567", departmentId: team.id, passengerCount: 1, service: "RIDE", pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Official review", justification: "Production review", passengers: [{ name: ownerUser.fullName, designation: "Executive" }] };
   await owner.post("/api/transport/requests").send(body).expect(400);
   await grant(reviewerUser, reviewerData, ["DASHBOARD", "APPROVALS"]);
   await request(app).put(`${base}/${ownerUser.id}`).set("Cookie", cookie).send({ ...ownerData, departmentId: team.id, departmentIds: [team.id], companyIds: [company.id], approverIds: [reviewerUser.id] }).expect(200);
@@ -683,7 +685,7 @@ test("SOP changes, returns and cancellations require responsible staff and rejec
   async function agent(user) { const agent = request.agent(app); await agent.post("/api/transport/auth/login").send({ username: user.username, password: "Staff123" }).expect(200); return agent; }
   const owner = await agent(ownerUser), reviewer = await agent(approver), alsoReviewer = await agent(secondApprover), assistant = await agent(operator), outsider = await agent(stranger);
   const base = "/api/transport/requests";
-  const body = { requesterDesignation: "Accounts Executive", requesterContact: "0771234567", departmentId: department.id, workLocation: "Head Office", passengerCount: 1, service: "RIDE", pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Accounts review", justification: "Official review", passengers: [{ name: "Owner", designation: "Accounts Executive" }] };
+  const body = { requesterDesignation: "Accounts Executive", requesterContact: "0771234567", departmentId: department.id, passengerCount: 1, service: "RIDE", pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Accounts review", justification: "Official review", passengers: [{ name: "Owner", designation: "Accounts Executive" }] };
   let record = (await owner.post(base).send(body).expect(201)).body.request;
   assert.deepEqual(record.approvers.map(String).sort(), [approver.id, secondApprover.id].sort());
   assert.equal((await alsoReviewer.get(base)).body.requests.length, 1);

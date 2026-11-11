@@ -6,7 +6,7 @@ const userSchema = new Schema(
     username: { type: String, required: true, unique: true, lowercase: true },
     email: { type: String, required() { return this.role === "SUPER_ADMIN"; }, lowercase: true },
     contact: { type: String, trim: true, maxlength: 30 },
-    designation: { type: String, default: "" },
+    designation: { type: String, default: "", maxlength: 100 },
     locationType: { type: String, enum: ["", "FACTORY", "HEAD_OFFICE", "SHOWROOM"], default: "" },
     workLocation: { type: String, default: "", maxlength: 150 },
     employeeCategory: { type: String, enum: ["EXECUTIVE_OR_BELOW", "MANAGER"], default: "EXECUTIVE_OR_BELOW" },

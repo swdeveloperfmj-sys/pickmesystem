@@ -14,7 +14,7 @@ const text = z.string().trim().min(2).max(500);
 const contact = z.string().trim().max(30).regex(/^\+?[\d\s().-]+$/).refine((value) => { const count = value.replace(/\D/g, "").length; return count >= 7 && count <= 15; });
 const requestInput = z.object({
   service: z.enum(["RIDE", "FLASH"]),
-  requesterDesignation: z.string().trim().max(100).default(""), requesterContact: contact, departmentId: id, workLocation: text,
+  requesterDesignation: z.string().trim().max(100).default(""), requesterContact: contact, departmentId: id,
   passengerCount: z.number().int().min(0).max(10),
   pickupAt: z.iso.datetime({ offset: true }), pickup: text, stopover: z.string().trim().max(500).default(""), destination: text,
   vehicle: z.enum(sopConfig.vehicles), deliveryRoute: z.enum(["BETWEEN_FACTORIES", "CUSTOMER_DELIVERY", "OTHER"]).default("OTHER"),
@@ -32,7 +32,7 @@ const actionInput = z.object({
   routeVerified: z.boolean().optional(), completionMessageChecked: z.boolean().optional(),
 }).strict();
 const active = (user) => user && user.isActive && user.status === "ACTIVE";
-const staffProfile = (user, department) => ({ id: user.id, fullName: user.fullName, username: user.username, contact: user.contact || "", role: user.role, sidebarAccess: sidebarAccess(user), departmentId: department?.id || "", department: department?.name || "", permissions: transportPermissions(user), sopAcknowledgedAt: user.sopAcknowledgedAt });
+const staffProfile = (user, department) => ({ id: user.id, fullName: user.fullName, username: user.username, contact: user.contact || "", designation: user.designation || "", role: user.role, sidebarAccess: sidebarAccess(user), departmentId: department?.id || "", department: department?.name || "", permissions: transportPermissions(user), sopAcknowledgedAt: user.sopAcknowledgedAt });
 const publicRequest = (record) => ({ ...record.toObject(), id: record.id });
 const event = (user, action, note = "") => ({ action, actor: user._id, actorName: user.fullName, at: new Date(), note });
 const notice = (pickup) => { if (new Date(pickup).getTime() - Date.now() < 30 * 60000) fail(400, "The request and approval must be shared at least 30 minutes before pickup. Choose a later pickup time."); };
@@ -129,9 +129,9 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     }
     const eligible = eligibleVehicles({ ...data, category: ["MANAGER", "ADMIN"].includes(user.role) ? "MANAGER" : "EXECUTIVE_OR_BELOW" });
     if (!eligible.includes(data.vehicle)) fail(400, `Annexure B permits: ${eligible.join(", ")} for this request.`);
-    const { version, requesterDesignation, requesterContact, departmentId, workLocation, ...details } = data;
+    const { version, requesterDesignation, requesterContact, departmentId, ...details } = data;
     const values = { ...details, pickupAt: new Date(data.pickupAt), requester: user._id, approver: null, approvers: approvers.map((approver) => approver._id),
-      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: "", contact: requesterContact, departmentId: department.id, department: department.name, workLocation }, approverDetails: { fullName: approvers.map((approver) => approver.fullName).join(", "), designation: approvers.map((approver) => approver.designation).filter(Boolean).join(", ") },
+      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: user.designation || "", contact: requesterContact, departmentId: department.id, department: department.name, workLocation: user.workLocation || "" }, approverDetails: { fullName: approvers.map((approver) => approver.fullName).join(", "), designation: approvers.map((approver) => approver.designation).filter(Boolean).join(", ") },
       status: "PENDING_APPROVAL", requestSharedAt: null, approvalSharedAt: null, bookingReference: "", driverDetails: "", bookingRecordedBy: null };
     let record;
     if (update) {
