@@ -11,7 +11,8 @@ export function matchesApprover(approver, departmentIds, companyIds, userId) {
     hasAccess(approver, "APPROVALS") && departments.some((id) => departmentIds.includes(String(id))) && companies.some((id) => companyIds.includes(String(id)));
 }
 export function assignedApproverAllowed(user, approver) {
-  if (user.approvers === undefined || hasAccess(user, "APPROVALS") || user.role === "SUPER_ADMIN") return true;
+  if (user.role === "SUPER_ADMIN") return true;
+  if (!user.approvers?.length) return false;
   return user.approvers.some((id) => String(id) === approver.id) && matchesApprover(approver,
     (user.departments?.length ? user.departments : user.department ? [user.department] : []).map(String),
     (user.companies?.length ? user.companies : user.company ? [user.company] : []).map(String), user.id);

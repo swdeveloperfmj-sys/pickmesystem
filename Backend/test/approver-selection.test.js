@@ -22,5 +22,7 @@ test("request authorization respects deselected approvers, empty selection and c
   assert.equal(assignedApproverAllowed(user, users[0]), true);
   assert.equal(assignedApproverAllowed(user, users[1]), false);
   assert.equal(assignedApproverAllowed({ ...user, approvers: [] }, users[0]), false);
+  assert.equal(assignedApproverAllowed({ ...user, approvers: undefined }, users[0]), false);
+  assert.equal(assignedApproverAllowed({ ...user, sidebarAccess: ["APPROVALS"], approvers: [] }, users[0]), false);
   assert.equal(assignedApproverAllowed({ ...user, companies: ["c2"] }, users[0]), false);
 });

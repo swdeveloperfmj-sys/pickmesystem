@@ -13,8 +13,8 @@ const id = z.string().regex(/^[a-f\d]{24}$/i, "Invalid record ID");
 const text = z.string().trim().min(2).max(500);
 const contact = z.string().trim().max(30).regex(/^\+?[\d\s().-]+$/).refine((value) => { const count = value.replace(/\D/g, "").length; return count >= 7 && count <= 15; });
 const requestInput = z.object({
-  service: z.enum(["RIDE", "FLASH"]), approverId: id,
-  requesterDesignation: z.string().trim().max(100).default(""), requesterContact: contact, departmentId: id, workLocation: text, approverDesignation: text,
+  service: z.enum(["RIDE", "FLASH"]),
+  requesterDesignation: z.string().trim().max(100).default(""), requesterContact: contact, departmentId: id, workLocation: text,
   passengerCount: z.number().int().min(0).max(10),
   pickupAt: z.iso.datetime({ offset: true }), pickup: text, stopover: z.string().trim().max(500).default(""), destination: text,
   vehicle: z.enum(sopConfig.vehicles), deliveryRoute: z.enum(["BETWEEN_FACTORIES", "CUSTOMER_DELIVERY", "OTHER"]).default("OTHER"),
@@ -46,7 +46,7 @@ function whatsapp(record) {
     `Official purpose / justification: ${record.purpose || record.justification}`];
   if (record.service === "RIDE") rows.push(`Passengers (${record.passengers.length}): ${record.passengers.map((person) => `${person.name} (${person.designation})`).join(", ")}`);
   else rows.push(`Receiver: ${record.receiverName} | ${record.receiverContact}`, `Items/samples: ${record.itemDetails}`);
-  if (record.approvalSharedAt) rows.push(`Approved by: ${record.approverDetails.fullName}`, `Approval recorded: ${record.approvalSharedAt.toISOString()}`);
+  if (record.approvalSharedAt) rows.push(`Approved by: ${record.approverDetails.approvedBy || record.approverDetails.fullName}`, `Approval recorded: ${record.approvalSharedAt.toISOString()}`);
   return rows.join("\n");
 }
 
@@ -88,7 +88,15 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     const users = await User.find({ isActive: true, status: "ACTIVE", role: { $ne: "SUPER_ADMIN" }, $or: [{ sidebarAccess: "APPROVALS" }, { sidebarAccess: { $exists: false }, role: { $in: ["MANAGER", "ADMIN"] } }] });
     res.json({ approvers: users.filter((user) => canApprove(user) && user.id !== req.user.id && assignedApproverAllowed(req.user, user)).map((user) => ({ id: user.id, fullName: user.fullName })) });
   });
-  const visible = (user) => user.role === "SUPER_ADMIN" || canBook(user) ? {} : { $or: [{ requester: user._id }, { approver: user._id }] };
+  const visible = (user) => user.role === "SUPER_ADMIN" || canBook(user) ? {} : { $or: [{ requester: user._id }, { approver: user._id }, { approvers: user._id }] };
+  const reviews = (record, user) => [record.approver, ...(record.approvers || [])].some((approver) => String(approver) === user.id) && canApprove(user);
+  async function assignedApprovers(user) {
+    if (!user.approvers?.length) fail(400, "Your administrator must assign an approver before you can request transport.");
+    const people = await User.find({ _id: { $in: user.approvers } });
+    const approvers = people.filter((approver) => active(approver) && canApprove(approver) && approver.id !== user.id && approver.role !== "SUPER_ADMIN" && assignedApproverAllowed(user, approver));
+    if (!approvers.length) fail(400, "Your assigned approvers are not available. Ask your administrator to update the approver assignment.");
+    return approvers;
+  }
   router.use("/requests", (req, _res, next) => {
     if (req.user.role !== "SUPER_ADMIN" && !sidebarAccess(req.user).length) fail(403, "Your administrator has not granted transport workspace access.");
     next();
@@ -110,9 +118,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     const department = user.department ? await Department.findById(user.department) : null;
     if (!department) fail(400, "Your account must have an assigned department before requesting transport.");
     notice(data.pickupAt);
-    const approver = await User.findById(data.approverId);
-    if (!active(approver) || !canApprove(approver) || approver.id === user.id || approver.role === "SUPER_ADMIN") fail(400, "Select an active authorized approver.");
-    if (!assignedApproverAllowed(user, approver)) fail(400, "Select one of your assigned approvers.");
+    const approvers = await assignedApprovers(user);
     if (data.service === "RIDE") {
       if (!data.passengers.length || !data.passengers.some((person) => person.name.toLowerCase() === user.fullName.toLowerCase())) fail(400, "Ride passenger details must include you.");
       if (data.passengerCount !== data.passengers.length) fail(400, "Passenger count must match the listed passengers.");
@@ -123,9 +129,9 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     }
     const eligible = eligibleVehicles({ ...data, category: ["MANAGER", "ADMIN"].includes(user.role) ? "MANAGER" : "EXECUTIVE_OR_BELOW" });
     if (!eligible.includes(data.vehicle)) fail(400, `Annexure B permits: ${eligible.join(", ")} for this request.`);
-    const { approverId, version, requesterDesignation, requesterContact, departmentId, workLocation, approverDesignation, ...details } = data;
-    const values = { ...details, pickupAt: new Date(data.pickupAt), requester: user._id, approver: approver._id,
-      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: "", contact: requesterContact, departmentId: department.id, department: department.name, workLocation }, approverDetails: { fullName: approver.fullName, designation: approverDesignation },
+    const { version, requesterDesignation, requesterContact, departmentId, workLocation, ...details } = data;
+    const values = { ...details, pickupAt: new Date(data.pickupAt), requester: user._id, approver: null, approvers: approvers.map((approver) => approver._id),
+      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: "", contact: requesterContact, departmentId: department.id, department: department.name, workLocation }, approverDetails: { fullName: approvers.map((approver) => approver.fullName).join(", "), designation: approvers.map((approver) => approver.designation).filter(Boolean).join(", ") },
       status: "PENDING_APPROVAL", requestSharedAt: null, approvalSharedAt: null, bookingReference: "", driverDetails: "", bookingRecordedBy: null };
     let record;
     if (update) {
@@ -145,7 +151,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     const record = await TransportRequest.findOne({ _id: id.parse(req.params.id), ...visible(user) });
     if (!record) fail(404, "Request not found.");
     const own = String(record.requester) === user.id && hasAccess(user, "REQUESTS");
-    const assigned = String(record.approver) === user.id && canApprove(user);
+    const assigned = reviews(record, user);
     const booking = canBook(user) && user.role !== "SUPER_ADMIN";
     const status = record.status;
     let nextStatus;
@@ -153,9 +159,11 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     const reason = () => { if (data.note.length < 2) fail(400, "Enter a reason or details for this action."); };
     switch (data.action) {
       case "APPROVE":
-        if (!assigned || status !== "PENDING_APPROVAL") fail(403, "Only the assigned authorized approver can approve a pending request.");
+        if (!assigned || status !== "PENDING_APPROVAL") fail(403, "Only an approver assigned to this requester can approve a pending request.");
         notice(record.pickupAt);
         if (!data.approvalShared) fail(400, "Confirm your approval has been shared in WhatsApp.");
+        changes.approver = user._id;
+        changes.approverDetails = { ...record.approverDetails, approvedBy: user.fullName, fullName: user.fullName, designation: user.designation || record.approverDetails.designation || "" };
         changes.approvalSharedAt = new Date(); nextStatus = "APPROVED"; break;
       case "REJECT":
         if (!assigned || status !== "PENDING_APPROVAL") fail(403, "Only the assigned approver can reject this request.");

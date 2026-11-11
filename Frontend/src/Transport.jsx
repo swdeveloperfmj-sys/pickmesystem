@@ -7,7 +7,8 @@ import { staffModules } from "./access";
 const label = (value) => value?.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
 const localDate = (value) => { const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const displayDate = (value) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Colombo", dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-const blank = { service: "RIDE", approverId: "", pickupAt: "", pickup: "", stopover: "", destination: "", vehicle: "THREE_WHEELER", deliveryRoute: "OTHER", purpose: "", passengerCount: 1, otherPassengers: "", receiverName: "", receiverContact: "", itemDetails: "", groupCarEligible: false };
+const blank = { service: "RIDE", pickupAt: "", pickup: "", stopover: "", destination: "", vehicle: "THREE_WHEELER", deliveryRoute: "OTHER", purpose: "", passengerCount: 1, otherPassengers: "", receiverName: "", receiverContact: "", itemDetails: "", groupCarEligible: false };
+const reviewsRequest = (record, user) => [record.approver, ...(record.approvers || [])].filter(Boolean).map(String).includes(String(user?.id));
 
 function WorkspaceIcon({ type, size = 22 }) {
   const paths = {
@@ -52,13 +53,13 @@ export function SopSummary() {
     <p className="muted">Source document status: For management approval.</p>
     <ul>
       <li>Official, necessary and justified travel/deliveries only. Personal trips and home-to-work commuting are prohibited.</li>
-      <li>Submit your own request. Request and assigned approver’s approval must be shared in WhatsApp at least 30 minutes before pickup.</li>
+      <li>Submit your own request. Your request goes to the approvers assigned to you, and any of them can accept it. Share the request and approval in WhatsApp at least 30 minutes before pickup.</li>
       <li>Use Ride for passengers and Flash for items/samples. Inter-factory/customer deliveries use a motorbike; otherwise executives/below use a three-wheeler. A car needs manager eligibility or at least three employees in the Executive category or below travelling together, with approval.</li>
       <li>The Administrative Assistant checks approval and completeness, then books in PickMe. This system records that external booking.</li>
       <li>Coordinate with the driver, verify pickup/route/destination and the completion message, and report changes, cancellations or delays immediately.</li>
       <li>HR must explain the SOP to new recruits and retain their acknowledgement in the personal file. This acknowledgement record supplements that process.</li>
     </ul>
-    <p className="muted">Enter your designation, contact, department and location with each request. Your Super Administrator assigns approval and booking access. Only the assigned approver can approve a request; authorized booking staff record the external PickMe booking.</p>
+    <p className="muted">Enter your contact, department and location with each request. Your Super Administrator assigns the approvers for your account. Any of those approvers can accept a request; authorized booking staff record the external PickMe booking.</p>
   </section>;
 }
 
@@ -125,8 +126,8 @@ export function StaffWorkspace({ ThemeToggle, Brand }) {
 }
 
 function RequestForm({ user, approvers, departments, record, onClose, onSaved }) {
-  const [form, setForm] = useState(() => ({ ...blank, requesterContact: record?.requesterDetails.contact || user.contact || "", departmentId: user.departmentId || "", workLocation: record?.requesterDetails.workLocation || "", approverDesignation: record?.approverDetails.designation || "",
-    ...(record ? { ...record, approverId: String(record.approver), pickupAt: localDate(record.pickupAt), otherPassengers: record.passengers.filter((person) => person.name.toLowerCase() !== user.fullName.toLowerCase()).map((person) => person.name + " | " + person.designation).join("\n") } : {}) }));
+  const [form, setForm] = useState(() => ({ ...blank, requesterContact: record?.requesterDetails.contact || user.contact || "", departmentId: user.departmentId || "", workLocation: record?.requesterDetails.workLocation || "",
+    ...(record ? { ...record, pickupAt: localDate(record.pickupAt), otherPassengers: record.passengers.filter((person) => person.name.toLowerCase() !== user.fullName.toLowerCase()).map((person) => person.name + " | " + person.designation).join("\n") } : {}) }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   function change(event) { const { name, value, type, checked } = event.target; setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value })); }
@@ -136,7 +137,7 @@ function RequestForm({ user, approvers, departments, record, onClose, onSaved })
     if (form.service === "RIDE" && Number(form.passengerCount) !== passengers.length) { setError("Passenger count must match you and the additional passengers listed below."); return; }
     setBusy(true); setError("");
     try {
-      const body = { requesterContact: form.requesterContact, departmentId: user.departmentId, workLocation: form.workLocation, approverDesignation: form.approverDesignation, passengerCount: form.service === "RIDE" ? Number(form.passengerCount) : 0, service: form.service, approverId: form.approverId, pickupAt: new Date(form.pickupAt).toISOString(), pickup: form.pickup, stopover: form.stopover, destination: form.destination, vehicle: form.vehicle, deliveryRoute: form.deliveryRoute, purpose: form.purpose, justification: form.purpose,
+      const body = { requesterContact: form.requesterContact, departmentId: user.departmentId, workLocation: form.workLocation, passengerCount: form.service === "RIDE" ? Number(form.passengerCount) : 0, service: form.service, pickupAt: new Date(form.pickupAt).toISOString(), pickup: form.pickup, stopover: form.stopover, destination: form.destination, vehicle: form.vehicle, deliveryRoute: form.deliveryRoute, purpose: form.purpose, justification: form.purpose,
         passengers: form.service === "RIDE" ? passengers : [], receiverName: form.service === "FLASH" ? form.receiverName : "", receiverContact: form.service === "FLASH" ? form.receiverContact : "", itemDetails: form.service === "FLASH" ? form.itemDetails : "", groupCarEligible: form.groupCarEligible };
       if (record) body.version = record.version;
       const data = await api(`/transport/requests${record ? `/${record.id}` : ""}`, body, record ? "PUT" : "POST");
@@ -153,12 +154,8 @@ function RequestForm({ user, approvers, departments, record, onClose, onSaved })
         <label>Department<input value={user.department || "No department assigned"} readOnly required={!!user.departmentId} /></label>
         <label>Department / work location<input name="workLocation" value={form.workLocation} onChange={change} required minLength={2} maxLength={150} placeholder="e.g. Factory 1, Colombo" /></label>
         <h3><span>02</span>Journey &amp; approval</h3>
-        <div className="field-row">
-          <div className="select-field"><label htmlFor="trip-service">Service</label><select id="trip-service" name="service" value={form.service} onChange={change}><option value="RIDE">PickMe Ride (passengers)</option><option value="FLASH">PickMe Flash (items/samples)</option></select></div>
-          <div className="select-field"><label htmlFor="trip-approver">Authorized approver</label><select id="trip-approver" name="approverId" value={form.approverId} onChange={change} required><option value="">Select approver</option>{approvers.map((person) => <option key={person.id} value={person.id}>{person.fullName}</option>)}</select></div>
-        </div>
-        {approvers.length === 0 && <p className="error">No active authorized approvers. Ask your administrator to grant Approval Management access to an account.</p>}
-        <label>Approver designation<input name="approverDesignation" value={form.approverDesignation} onChange={change} required minLength={2} maxLength={100} /></label>
+        <div className="select-field"><label htmlFor="trip-service">Service</label><select id="trip-service" name="service" value={form.service} onChange={change}><option value="RIDE">PickMe Ride (passengers)</option><option value="FLASH">PickMe Flash (items/samples)</option></select></div>
+        {approvers.length > 0 ? <p className="info">Assigned approvers: {approvers.map((person) => person.fullName).join(", ")}. Any of them can accept this request.</p> : <p className="error">No approver is assigned to your account. Ask your administrator to assign an approver before requesting transport.</p>}
         <label>Pickup date and time<input type="datetime-local" name="pickupAt" value={form.pickupAt} min={localDate(Date.now() + 30 * 60000)} onChange={change} required /></label>
         <div className="field-row"><label>Pickup location<input name="pickup" value={form.pickup} onChange={change} required minLength={2} maxLength={500} /></label><label>Destination<input name="destination" value={form.destination} onChange={change} required minLength={2} maxLength={500} /></label></div>
         <label>Stopover (optional)<input name="stopover" value={form.stopover} onChange={change} maxLength={500} /></label>
@@ -168,7 +165,7 @@ function RequestForm({ user, approvers, departments, record, onClose, onSaved })
         <p className="muted">Inter-factory/customer deliveries: motorbike. Otherwise executives/below: three-wheeler; managers: car or three-wheeler. Three or more passengers may use a car with approval.</p>
         {form.service === "RIDE" && form.vehicle === "CAR" && !["MANAGER", "ADMIN"].includes(user.role) && <label className="check-label"><input type="checkbox" name="groupCarEligible" checked={form.groupCarEligible} onChange={change} required />All {passengers.length} passengers are employees in the Executive category or below; at least three are travelling together. This car request requires approval.</label>}
         <label>Official purpose / justification<textarea name="purpose" value={form.purpose} onChange={change} required minLength={2} maxLength={500} placeholder="Explain the official reason for this transport request" /></label>
-        <div className="department-actions"><button className="primary">{busy ? "Submitting…" : "Submit for approval"}</button><button className="secondary" type="button" onClick={onClose}>Cancel</button></div>
+        <div className="department-actions"><button className="primary" disabled={approvers.length === 0}>{busy ? "Submitting…" : "Submit for approval"}</button><button className="secondary" type="button" onClick={onClose}>Cancel</button></div>
       </fieldset>
     </form>
   </section>;
@@ -245,7 +242,7 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
   const requestBlockedReason = !permissions.request ? "Sign in with your staff account to create a request."
     : !user.sopAcknowledgedAt ? "Read guidelines and acknowledge the SOP to create a request." : "";
   const shown = records.filter((record) => {
-    if (section === "Approval Management" || tab === "approvals") return record.status === "PENDING_APPROVAL" && (admin || String(record.approver) === user.id);
+    if (section === "Approval Management" || tab === "approvals") return record.status === "PENDING_APPROVAL" && (admin || reviewsRequest(record, user));
     if (section === "Booking Management" || tab === "bookings") return ["APPROVED", "BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"].includes(record.status);
     return true;
   });
@@ -259,7 +256,7 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
     </dialog>
     {!dashboardSection && (loading ? <p role="status">Loading requests…</p> : !shown.length ? <div className="empty-state staff-request-empty"><span className="staff-empty-icon"><WorkspaceIcon type="route" size={28} /></span><h2>No requests yet</h2><p className="muted">Once a request is submitted, its approval and trip updates will appear here.</p></div> : <div className="request-list"><div className="request-list-header"><span>Journey</span><span>Requester</span><span>Request details</span><span>Purpose</span><span>Trip information</span><span>Actions</span></div>{shown.map((record) => {
       const own = !admin && String(record.requester) === user.id && permissions.request;
-      const assigned = !admin && String(record.approver) === user.id && permissions.approve;
+      const assigned = !admin && reviewsRequest(record, user) && permissions.approve;
       const choices = [];
       if (assigned && record.status === "PENDING_APPROVAL") choices.push("APPROVE", "REJECT", "RETURN");
       if (!admin && permissions.book) {
@@ -276,7 +273,7 @@ export function TransportPanel({ user, admin = false, refreshKey, section = "Tra
       return <article key={record.id} className="request-card request-card-modern" aria-label={`Request ${record.id}`}>
         <div className="request-heading"><div><span className="eyebrow accent">{label(record.service)} · {label(record.vehicle)}</span><h2>{record.pickup} → {record.destination}</h2></div><span className="badge">{label(record.status)}</span></div>
         <p><strong>{record.requesterDetails.fullName}</strong> · {record.requesterDetails.designation} · {record.requesterDetails.contact}</p>
-        <p className="muted">{record.requesterDetails.department} · {record.requesterDetails.workLocation}<br />Pickup: {displayDate(record.pickupAt)} (Sri Lanka)<br />Approver: {record.approverDetails.fullName} · {record.approverDetails.designation}</p>
+        <p className="muted">{record.requesterDetails.department} · {record.requesterDetails.workLocation}<br />Pickup: {displayDate(record.pickupAt)} (Sri Lanka)<br />{record.approvalSharedAt ? "Approved by" : "Assigned approvers"}: {record.approverDetails.approvedBy || record.approverDetails.fullName}{record.approverDetails.designation ? ` · ${record.approverDetails.designation}` : ""}</p>
         <p className="request-copy"><strong>Official purpose / justification:</strong> {record.purpose || record.justification}</p>
         {record.stopover && <p className="muted">Stopover: {record.stopover}</p>}
         <p className="muted">{record.service === "RIDE" ? `Passengers (${record.passengers.length}): ${record.passengers.map((person) => `${person.name} (${person.designation})`).join(", ")}` : `Receiver: ${record.receiverName} · ${record.receiverContact}. Items/samples: ${record.itemDetails}`}</p>

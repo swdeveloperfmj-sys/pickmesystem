@@ -50,7 +50,8 @@ export const Role = mongoose.model("Role", new Schema({
 }, { timestamps: true }));
 export const TransportRequest = mongoose.model("TransportRequest", new Schema({
   requester: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-  approver: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+  approver: { type: Schema.Types.ObjectId, ref: "User", index: true },
+  approvers: [{ type: Schema.Types.ObjectId, ref: "User", index: true }],
   requesterDetails: { type: Schema.Types.Mixed, required: true },
   approverDetails: { type: Schema.Types.Mixed, required: true },
   service: { type: String, enum: ["RIDE", "FLASH"], required: true },

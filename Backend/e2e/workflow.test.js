@@ -8,7 +8,7 @@ import bcrypt from "bcryptjs";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { chromium } from "playwright";
 import { createApp } from "../src/app.js";
-import { initializeDatabase, User, Department, TransportRequest } from "../src/models.js";
+import { initializeDatabase, User, Department, Company, TransportRequest } from "../src/models.js";
 
 test(
   "browser: initial setup → OTP → dashboard → logout → login, including mobile layout",
@@ -443,8 +443,9 @@ test(
       const transportDept = await Department.create({ name: "Transport Test", nameKey: "transport test" });
       const passwordHash = await bcrypt.hash("Staff123", 12);
       const common = { passwordHash, department: transportDept._id, contact: "0771234567" };
-      const staffRequester = await User.create({ ...common, fullName: "Request Employee", username: "request.employee", role: "EMPLOYEE", sidebarAccess: ["DASHBOARD", "REQUESTS", "REPORTS", "HISTORY"] });
-      const staffApprover = await User.create({ ...common, fullName: "Sales Approver", username: "sales.approver", role: "MANAGER" });
+      const transportCompany = await Company.create({ name: "Transport Co", nameKey: "transport co e2e" });
+      const staffApprover = await User.create({ ...common, fullName: "Sales Approver", username: "sales.approver", role: "MANAGER", departments: [transportDept._id], companies: [transportCompany._id], company: transportCompany._id });
+      const staffRequester = await User.create({ ...common, fullName: "Request Employee", username: "request.employee", role: "EMPLOYEE", sidebarAccess: ["DASHBOARD", "REQUESTS", "REPORTS", "HISTORY"], departments: [transportDept._id], companies: [transportCompany._id], company: transportCompany._id, approvers: [staffApprover._id] });
       await User.create({ ...common, fullName: "Booking Assistant", username: "booking.assistant", role: "OPERATOR" });
       async function staffLogin(username, password = "Staff123") {
         await page.goto(`${config.APP_ORIGIN}/login`);
@@ -493,8 +494,7 @@ test(
       await page.getByLabel("Additional passengers (optional)", { exact: true }).fill("Person Two | Executive\n   ");
       assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "2");
       await page.getByLabel("Department / work location", { exact: true }).fill("Factory 1");
-      await page.getByLabel("Approver designation", { exact: true }).fill("Sales Manager");
-      await page.getByLabel("Authorized approver", { exact: true }).selectOption(staffApprover.id);
+      await page.getByText("Assigned approvers: Sales Approver", { exact: true }).waitFor();
       const future = await page.evaluate(() => { const date = new Date(Date.now() + 3 * 3600000); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); });
       await page.getByLabel("Pickup date and time", { exact: true }).fill(future);
       await page.getByLabel("Pickup location", { exact: true }).fill("Factory 1");

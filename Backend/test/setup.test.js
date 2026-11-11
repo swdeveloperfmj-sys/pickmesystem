@@ -532,17 +532,18 @@ test("SOP workflow collects request details without transport profiles and enfor
   const verified = await complete();
   const adminCookie = verified.headers["set-cookie"][0].split(";")[0];
   const department = await Department.create({ name: "Production", nameKey: "production" });
+  const company = await Company.create({ name: "FMJ", nameKey: "fmj" });
   const password = "Staff123";
   const passwordHash = await bcrypt.hash(password, 12);
-  async function employee(username, designation, role = "EMPLOYEE", locationType = "FACTORY") {
-    return User.create({ fullName: username, username, passwordHash, contact: "0771234567", role });
+  async function employee(username, designation, role = "EMPLOYEE", extra = {}) {
+    return User.create({ fullName: username, username, passwordHash, contact: "0771234567", role, designation, department: department._id, departments: [department._id], company: company._id, companies: [company._id], ...extra });
   }
-  const requester = await employee("requester", "Production Executive");
-  const outsider = await employee("outsider", "HR Executive");
   const approver = await employee("approver", "Sales Manager", "MANAGER");
   const otherApprover = await employee("other.approver", "Finance Manager", "MANAGER");
+  const requester = await employee("requester", "Production Executive", "EMPLOYEE", { approvers: [approver._id] });
+  const outsider = await employee("outsider", "HR Executive");
   const assistant = await employee("assistant", "Administrative Assistant", "OPERATOR");
-  const showroom = await employee("showroom", "Production Executive", "EMPLOYEE", "SHOWROOM");
+  const showroom = await User.create({ fullName: "showroom", username: "showroom", passwordHash, contact: "0771234567", role: "EMPLOYEE" });
   async function loginStaff(user) {
     const agent = request.agent(app);
     await agent.post("/api/transport/auth/login").send({ username: user.username, password }).expect(200);
@@ -552,7 +553,7 @@ test("SOP workflow collects request details without transport profiles and enfor
   const other = await loginStaff(outsider), wrongReviewer = await loginStaff(otherApprover), store = await loginStaff(showroom);
   const base = "/api/transport/requests";
   const pickupAt = new Date(Date.now() + 2 * 3600000).toISOString();
-  const body = { requesterDesignation: "Production Executive", requesterContact: "0771234567", departmentId: department.id, workLocation: "Factory 1", approverDesignation: "Sales Manager", passengerCount: 1, service: "RIDE", approverId: approver.id, pickupAt, pickup: "Factory 1", destination: "Head Office", vehicle: "THREE_WHEELER", purpose: "Official sample review", justification: "Required quality review", passengers: [{ name: requester.fullName, designation: "Production Executive" }], officialOnly: true, requestShared: true };
+  const body = { requesterDesignation: "Production Executive", requesterContact: "0771234567", departmentId: department.id, workLocation: "Factory 1", passengerCount: 1, service: "RIDE", pickupAt, pickup: "Factory 1", destination: "Head Office", vehicle: "THREE_WHEELER", purpose: "Official sample review", justification: "Required quality review", passengers: [{ name: requester.fullName, designation: "Production Executive" }] };
   await request(app).get(base).expect(401);
   await owner.get("/api/super-admin/users").expect(401);
   await owner.post(base).send(body).expect(400);
@@ -564,14 +565,15 @@ test("SOP workflow collects request details without transport profiles and enfor
   await owner.post(base).send({ ...body, vehicle: "CAR" }).expect(400);
   await owner.post(base).send({ ...body, passengers: [] }).expect(400);
   await owner.post(base).send({ ...body, passengerCount: 2 }).expect(400);
-  await owner.post(base).send({ ...body, requesterDesignation: "" }).expect(400);
+  await owner.post(base).send({ ...body, passengers: [{ name: "Someone Else", designation: "Executive" }] }).expect(400);
   await owner.post(base).send({ ...body, requesterContact: "invalid" }).expect(400);
-  await owner.post(base).send({ ...body, departmentId: "000000000000000000000000" }).expect(400);
-  await owner.post(base).send({ ...body, approverId: outsider.id, approverDesignation: "Sales Manager" }).expect(400);
+  await owner.post(base).send({ ...body, departmentId: "not-an-id" }).expect(400);
+  await owner.post(base).send({ ...body, approverId: outsider.id }).expect(400);
   const submitted = await owner.post(base).send(body).expect(201);
   const record = submitted.body.request;
   assert.equal(record.requesterDetails.contact, body.requesterContact);
-  assert.equal(record.requesterDetails.designation, body.requesterDesignation);
+  assert.equal(record.requesterDetails.designation, "");
+  assert.deepEqual(record.approvers.map(String), [approver.id]);
   assert.equal(record.requesterDetails.workLocation, "Factory 1");
   assert.equal(record.passengerCount, 1);
   assert.equal(record.requesterDetails.department, "Production");
@@ -626,7 +628,9 @@ test("Super Admin sidebar grants persist, control staff actions, and revoke acce
   };
   const bookerData = account("access.booker", ["DASHBOARD"]);
   const create = async (data) => (await request(app).post(base).set("Cookie", cookie).send(data).expect(201)).body.user;
-  const ownerUser = await create(ownerData), reviewerUser = await create(reviewerData), bookerUser = await create(bookerData);
+  const reviewerUser = await create(reviewerData);
+  const ownerUser = await create({ ...ownerData, departmentId: team.id, departmentIds: [team.id], companyIds: [company.id], approverIds: [] });
+  const bookerUser = await create(bookerData);
   assert.deepEqual(ownerUser.sidebarAccess, ownerData.sidebarAccess);
   for (const sidebarAccess of [["SUPER_ADMIN"], ["REQUESTS", "REQUESTS"], "REQUESTS", null]) {
     await request(app).post(base).set("Cookie", cookie).send({ ...ownerData, username: "invalid.access", sidebarAccess }).expect(400);
@@ -639,9 +643,10 @@ test("Super Admin sidebar grants persist, control staff actions, and revoke acce
   const owner = await login(ownerUser), reviewer = await login(reviewerUser), booker = await login(bookerUser);
   await owner.post("/api/transport/acknowledge").send({ acknowledged: true }).expect(200);
   await owner.put(`${base}/${ownerUser.id}`).send({ ...ownerData, sidebarAccess: ["BOOKINGS"] }).expect(401);
-  const body = { requesterDesignation: "Executive", requesterContact: "0771234567", departmentId: team.id, workLocation: "Office", approverDesignation: "Team Lead", passengerCount: 1, service: "RIDE", approverId: reviewerUser.id, pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Official review", justification: "Production review", passengers: [{ name: ownerUser.fullName, designation: "Executive" }], officialOnly: true, requestShared: true };
+  const body = { requesterDesignation: "Executive", requesterContact: "0771234567", departmentId: team.id, workLocation: "Office", passengerCount: 1, service: "RIDE", pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Official review", justification: "Production review", passengers: [{ name: ownerUser.fullName, designation: "Executive" }] };
   await owner.post("/api/transport/requests").send(body).expect(400);
   await grant(reviewerUser, reviewerData, ["DASHBOARD", "APPROVALS"]);
+  await request(app).put(`${base}/${ownerUser.id}`).set("Cookie", cookie).send({ ...ownerData, departmentId: team.id, departmentIds: [team.id], companyIds: [company.id], approverIds: [reviewerUser.id] }).expect(200);
   assert.equal((await reviewer.get("/api/transport/me")).body.user.permissions.approve, true);
   const approvers = (await owner.get("/api/transport/approvers").expect(200)).body.approvers;
   assert.ok(approvers.some((person) => person.id === reviewerUser.id));
@@ -667,16 +672,23 @@ test("Super Admin sidebar grants persist, control staff actions, and revoke acce
 
 test("SOP changes, returns and cancellations require responsible staff and reject stale versions", async () => {
   const department = await Department.create({ name: "Accounts", nameKey: "accounts" });
+  const company = await Company.create({ name: "Accounts Co", nameKey: "accounts co" });
   const passwordHash = await bcrypt.hash("Staff123", 12);
-  const common = { passwordHash, contact: "0771234567", department: department._id, locationType: "HEAD_OFFICE", workLocation: "Head Office", sopAcknowledgedAt: new Date() };
-  const ownerUser = await User.create({ ...common, fullName: "Owner", username: "owner", role: "EMPLOYEE", designation: "Accounts Executive" });
+  const common = { passwordHash, contact: "0771234567", department: department._id, departments: [department._id], company: company._id, companies: [company._id], locationType: "HEAD_OFFICE", workLocation: "Head Office", sopAcknowledgedAt: new Date() };
   const approver = await User.create({ ...common, fullName: "Approver", username: "approver", role: "MANAGER", designation: "Finance Manager" });
+  const secondApprover = await User.create({ ...common, fullName: "Second Approver", username: "second.approver", role: "MANAGER", designation: "Finance Manager" });
+  const ownerUser = await User.create({ ...common, fullName: "Owner", username: "owner", role: "EMPLOYEE", designation: "Accounts Executive", approvers: [approver._id, secondApprover._id] });
   const operator = await User.create({ ...common, fullName: "Assistant", username: "assistant", role: "OPERATOR", designation: "Administrative Assistant" });
+  const stranger = await User.create({ ...common, fullName: "Other Manager", username: "other.manager", role: "MANAGER", designation: "Finance Manager" });
   async function agent(user) { const agent = request.agent(app); await agent.post("/api/transport/auth/login").send({ username: user.username, password: "Staff123" }).expect(200); return agent; }
-  const owner = await agent(ownerUser), reviewer = await agent(approver), assistant = await agent(operator);
+  const owner = await agent(ownerUser), reviewer = await agent(approver), alsoReviewer = await agent(secondApprover), assistant = await agent(operator), outsider = await agent(stranger);
   const base = "/api/transport/requests";
-  const body = { requesterDesignation: "Accounts Executive", requesterContact: "0771234567", departmentId: department.id, workLocation: "Head Office", approverDesignation: "Finance Manager", passengerCount: 1, service: "RIDE", approverId: approver.id, pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Accounts review", justification: "Official review", passengers: [{ name: "Owner", designation: "Accounts Executive" }], officialOnly: true, requestShared: true };
+  const body = { requesterDesignation: "Accounts Executive", requesterContact: "0771234567", departmentId: department.id, workLocation: "Head Office", passengerCount: 1, service: "RIDE", pickupAt: new Date(Date.now() + 3 * 3600000).toISOString(), pickup: "Office", destination: "Factory", vehicle: "THREE_WHEELER", purpose: "Accounts review", justification: "Official review", passengers: [{ name: "Owner", designation: "Accounts Executive" }] };
   let record = (await owner.post(base).send(body).expect(201)).body.request;
+  assert.deepEqual(record.approvers.map(String).sort(), [approver.id, secondApprover.id].sort());
+  assert.equal((await alsoReviewer.get(base)).body.requests.length, 1);
+  assert.equal((await outsider.get(base)).body.requests.length, 0);
+  await outsider.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: record.version, approvalShared: true }).expect(404);
   async function act(agent, action, extra = {}) { const result = await agent.post(`${base}/${record.id}/action`).send({ action, version: record.version, ...extra }).expect(200); record = result.body.request; }
   await act(reviewer, "RETURN", { note: "Clarify purpose" });
   await owner.put(`${base}/${record.id}`).send({ ...body, version: 0 }).expect(409);
