@@ -16,7 +16,7 @@ import { User, SuperAdminSetup, SetupState, AuditLog, Department, Company, Locat
 import { registerTransport } from "./transport.js";
 import { isAllowedOrigin } from "./origin.js";
 import { sopConfig } from "./sop.js";
-import { staffModules, sidebarAccess } from "./access.js";
+import { staffModules, sidebarAccess, matchesApprover } from "./access.js";
 
 const registration = z
   .object({
@@ -86,6 +86,7 @@ const managedUserInput = z.object({
   departmentId: departmentId.nullable(),
   departmentIds: z.array(departmentId).refine((ids) => new Set(ids).size === ids.length, "Select each department once").optional(),
   companyIds: z.array(departmentId).refine((ids) => new Set(ids).size === ids.length, "Select each company once").optional(),
+  approverIds: z.array(departmentId).refine((ids) => new Set(ids).size === ids.length, "Select each approver once").optional(),
   locationIds: z.array(departmentId).refine((ids) => new Set(ids).size === ids.length, "Select each location once").optional(),
   sidebarAccess: z.array(z.enum(staffModules)).max(staffModules.length).refine((items) => new Set(items).size === items.length, "Select each section once").optional(),
 }).strict();
@@ -93,9 +94,9 @@ const userPassword = z.string().min(6).refine(
   (value) => Buffer.byteLength(value, "utf8") <= 72,
   "Password must fit within 72 UTF-8 bytes",
 );
-const createUserInput = managedUserInput.extend({ password: userPassword })
-  .refine((value) => value.role.startsWith("CUSTOM_"), {
-    message: "Create a custom role before assigning it to a new user.",
+const createUserInput = managedUserInput.extend({ password: userPassword, role: managedUserInput.shape.role.default("EMPLOYEE") })
+  .refine((value) => value.role === "EMPLOYEE" || value.role.startsWith("CUSTOM_"), {
+    message: "Select a valid user role.",
     path: ["role"],
   });
 const updateUserInput = managedUserInput.extend({ password: userPassword.optional() });
@@ -103,6 +104,7 @@ const publicRole = (role) => ({ value: `CUSTOM_${role.id}`, name: role.name, des
 const managedUser = (user) => ({
   ...publicUser(user),
   sidebarAccess: sidebarAccess(user),
+  approverIds: user.approvers?.map(String),
   sopAcknowledgedAt: user.sopAcknowledgedAt,
   departmentId: user.department?._id?.toString() || null,
   department: user.department ? { id: user.department.id, name: user.department.name } : null,
@@ -514,6 +516,7 @@ export function createApp({ config, mailer, limits = true }) {
       departmentId: requestedDepartmentId,
       departmentIds: requestedDepartmentIds,
       companyIds: requestedCompanyIds,
+      approverIds: requestedApproverIds,
       locationIds: requestedLocationIds,
       ...fields
     } = data;
@@ -547,7 +550,7 @@ export function createApp({ config, mailer, limits = true }) {
             { $inc: { assignmentVersion: 1 } }, { session }))) {
             throw new ApiError(400, "Selected role no longer exists. Refresh the role list.");
           }
-        } else if (!update || !(await User.exists({ _id: id, role: fields.role }).session(session))) {
+        } else if (update ? !(await User.exists({ _id: id, role: fields.role }).session(session)) : fields.role !== "EMPLOYEE") {
           throw new ApiError(400, "Select a current custom role.");
         }
         // Lock selected department documents so assignment cannot race their deletion.
@@ -576,6 +579,13 @@ export function createApp({ config, mailer, limits = true }) {
           locations: locationIds,
           isActive: fields.status === "ACTIVE",
         };
+        if (requestedApproverIds !== undefined) {
+          const approvers = await User.find({ _id: { $in: requestedApproverIds } }).session(session);
+          if (!becomesApprover && (approvers.length !== requestedApproverIds.length || approvers.some((approver) => !matchesApprover(approver, departmentIds, companyIds, id)))) {
+            throw new ApiError(400, "Selected approvers must be active and match the user's departments and companies. Refresh the approver selection.");
+          }
+          values.approvers = becomesApprover ? [] : requestedApproverIds;
+        }
         if (passwordHash) values.passwordHash = passwordHash;
         if (update) {
           saved = await User.findOneAndUpdate({ _id: id, role: { $ne: "SUPER_ADMIN" } },

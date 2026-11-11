@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { User, Department, TransportRequest } from "./models.js";
 import { sopConfig, transportPermissions, canRequest, canApprove, canBook, eligibleVehicles } from "./sop.js";
-import { sidebarAccess, hasAccess } from "./access.js";
+import { sidebarAccess, hasAccess, assignedApproverAllowed } from "./access.js";
 
 const fail = (status, message) => { const error = new Error(message); error.status = status; throw error; };
 const id = z.string().regex(/^[a-f\d]{24}$/i, "Invalid record ID");
@@ -84,9 +84,9 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     const user = await User.findByIdAndUpdate(req.user._id, { $set: { sopAcknowledgedAt: new Date() } }, { returnDocument: "after" });
     res.json({ user: staffProfile(user, user.department && await Department.findById(user.department)) });
   });
-  router.get("/approvers", async (_req, res) => {
+  router.get("/approvers", async (req, res) => {
     const users = await User.find({ isActive: true, status: "ACTIVE", role: { $ne: "SUPER_ADMIN" }, $or: [{ sidebarAccess: "APPROVALS" }, { sidebarAccess: { $exists: false }, role: { $in: ["MANAGER", "ADMIN"] } }] });
-    res.json({ approvers: users.filter(canApprove).map((user) => ({ id: user.id, fullName: user.fullName })) });
+    res.json({ approvers: users.filter((user) => canApprove(user) && user.id !== req.user.id && assignedApproverAllowed(req.user, user)).map((user) => ({ id: user.id, fullName: user.fullName })) });
   });
   const visible = (user) => user.role === "SUPER_ADMIN" || canBook(user) ? {} : { $or: [{ requester: user._id }, { approver: user._id }] };
   router.use("/requests", (req, _res, next) => {
@@ -112,6 +112,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     notice(data.pickupAt);
     const approver = await User.findById(data.approverId);
     if (!active(approver) || !canApprove(approver) || approver.id === user.id || approver.role === "SUPER_ADMIN") fail(400, "Select an active authorized approver.");
+    if (!assignedApproverAllowed(user, approver)) fail(400, "Select one of your assigned approvers.");
     if (data.service === "RIDE") {
       if (!data.passengers.length || !data.passengers.some((person) => person.name.toLowerCase() === user.fullName.toLowerCase())) fail(400, "Ride passenger details must include you.");
       if (data.passengerCount !== data.passengers.length) fail(400, "Passenger count must match the listed passengers.");

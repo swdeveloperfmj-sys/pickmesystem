@@ -18,6 +18,7 @@ const userSchema = new Schema(
     location: { type: Schema.Types.ObjectId, ref: "Location", default: null, index: true },
     companies: [{ type: Schema.Types.ObjectId, ref: "Company" }],
     locations: [{ type: Schema.Types.ObjectId, ref: "Location" }],
+    approvers: { type: [{ type: Schema.Types.ObjectId, ref: "User" }], default: undefined },
     role: {
       type: String,
       match: /^(SUPER_ADMIN|ADMIN|EMPLOYEE|MANAGER|OPERATOR|CUSTOM_[a-f\d]{24})$/,

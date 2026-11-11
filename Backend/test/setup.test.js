@@ -221,6 +221,49 @@ test("location CRUD is protected, validated, unique and persistent", async () =>
   assert.equal(await Location.countDocuments(), 0);
 });
 
+test("users can be created without a role or custom roles and keep explicit access", async () => {
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  assert.equal(await Role.countDocuments(), 0);
+  const body = { fullName: "Normal User", username: "normal.user", contact: "0771234567", password: "Password123", status: "ACTIVE", departmentId: null, sidebarAccess: ["DASHBOARD", "REQUESTS"], approverIds: [] };
+  const created = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send(body).expect(201);
+  assert.equal(created.body.user.role, "EMPLOYEE");
+  assert.deepEqual(created.body.user.sidebarAccess, body.sidebarAccess);
+  await request(app).put(`/api/super-admin/users/${created.body.user.id}`).set("Cookie", cookie).send({ ...body, role: "EMPLOYEE", fullName: "Updated User" }).expect(200);
+  const department = await Department.create({ name: "Finance", nameKey: "finance" });
+  const company = await Company.create({ name: "Acme", nameKey: "acme" });
+  const approver = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send({ ...body, username: "new.approver", departmentId: department.id, departmentIds: [department.id], companyIds: [company.id], sidebarAccess: ["DASHBOARD", "APPROVALS"] }).expect(201);
+  assert.ok(approver.body.user.sidebarAccess.includes("APPROVALS"));
+  assert.equal(await Role.countDocuments(), 0);
+});
+
+test("normal users persist selected approvers and reject unrelated or inactive approvers", async () => {
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const department = await Department.create({ name: "Operations", nameKey: "operations" });
+  const company = await Company.create({ name: "Acme", nameKey: "acme" });
+  const other = await Company.create({ name: "Other", nameKey: "other" });
+  const role = await Role.create({ name: "Staff", nameKey: "staff" });
+  const base = { fullName: "Test Person", username: "approver.one", contact: "0771234567", password: "Password123", role: `CUSTOM_${role.id}`, status: "ACTIVE", departmentId: department.id, departmentIds: [department.id], companyIds: [company.id], sidebarAccess: ["DASHBOARD", "APPROVALS"] };
+  const first = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send(base).expect(201);
+  const second = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send({ ...base, username: "approver.two" }).expect(201);
+  const member = { ...base, username: "normal.user", sidebarAccess: ["DASHBOARD", "REQUESTS"], approverIds: [first.body.user.id] };
+  const created = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send(member).expect(201);
+  const userId = created.body.user.id;
+  assert.deepEqual(created.body.user.approverIds, [first.body.user.id]);
+  const staff = request.agent(app);
+  await staff.post("/api/transport/auth/login").send({ username: member.username, password: member.password }).expect(200);
+  assert.deepEqual((await staff.get("/api/transport/approvers").expect(200)).body.approvers.map((user) => user.id), [first.body.user.id]);
+  await request(app).put(`/api/super-admin/users/${userId}`).set("Cookie", cookie).send({ ...member, companyIds: [other.id] }).expect(400);
+  await User.findByIdAndUpdate(second.body.user.id, { status: "INACTIVE" });
+  await request(app).put(`/api/super-admin/users/${userId}`).set("Cookie", cookie).send({ ...member, approverIds: [second.body.user.id] }).expect(400);
+  await request(app).put(`/api/super-admin/users/${userId}`).set("Cookie", cookie).send({ ...member, approverIds: [userId] }).expect(400);
+  await request(app).put(`/api/super-admin/users/${userId}`).set("Cookie", cookie).send({ ...member, approverIds: [] }).expect(200);
+  assert.deepEqual((await staff.get("/api/transport/approvers").expect(200)).body.approvers, []);
+  const list = await request(app).get("/api/super-admin/users").set("Cookie", cookie).expect(200);
+  assert.deepEqual(list.body.users.find((user) => user.id === userId).approverIds, []);
+});
+
 test("department CRUD is protected, validated, unique, persistent, and reflected in dashboard totals", async () => {
   const base = "/api/super-admin/departments";
   const missingId = new mongoose.Types.ObjectId().toString();
@@ -288,7 +331,7 @@ test("user CRUD validates roles, credentials and department links while protecti
   assert.equal(list.body.users.length, 1);
   assert.equal(list.body.users[0].passwordHash, undefined);
   const { password, ...update } = data;
-  for (const change of [{ role: "SUPER_ADMIN" }, { role: "EMPLOYEE" }, { departmentId: absent }, { departmentId: "invalid" }, { isEmailVerified: true }, { contact: "abc1234" }, { contact: "123" }, { contact: "" }, { contact: "1".repeat(16) }, { password: "short" }, { password: "🔒".repeat(20) }, { status: "UNKNOWN" }]) {
+  for (const change of [{ role: "SUPER_ADMIN" }, { role: "ADMIN" }, { departmentId: absent }, { departmentId: "invalid" }, { isEmailVerified: true }, { contact: "abc1234" }, { contact: "123" }, { contact: "" }, { contact: "1".repeat(16) }, { password: "short" }, { password: "🔒".repeat(20) }, { status: "UNKNOWN" }]) {
     await request(app).post(base).set("Cookie", cookie).send({ ...data, ...change }).expect(400);
   }
   await request(app).post(base).set("Cookie", cookie).send({ ...data, username: "unique.user", departmentId: null }).expect(201);
@@ -453,7 +496,7 @@ test("custom roles are unique, protected, persistent and assignable without Supe
   await request(app).put(`${base}/${roleId}`).set("Cookie", cookie)
     .send({ name: "x" }).expect(400);
   const userData = { fullName: "Sam Silva", username: "sam.silva", contact: "011 234 5678", password: "RolePassword!123", role, status: "ACTIVE", departmentId: null };
-  await request(app).post("/api/super-admin/users").set("Cookie", cookie).send({ ...userData, role: "EMPLOYEE" }).expect(400);
+  await request(app).post("/api/super-admin/users").set("Cookie", cookie).send({ ...userData, role: "ADMIN" }).expect(400);
   const person = await request(app).post("/api/super-admin/users").set("Cookie", cookie).send(userData).expect(201);
   assert.equal(person.body.user.role, role);
   const { password, ...update } = userData;

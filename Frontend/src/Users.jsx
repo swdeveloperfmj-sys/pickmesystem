@@ -3,10 +3,10 @@ import { api } from "./api";
 import Roles from "./Roles";
 import UsersTable from "./UsersTable";
 import { staffModules, defaultAccess } from "./access";
+import { matchingApprovers, updateApproverSelection } from "./approvers.js";
 
 const emptyForm = { fullName: "", username: "", contact: "", password: "", role: "", status: "ACTIVE", sidebarAccess: defaultAccess("") };
-const emptyAssignments = { departmentIds: [], companyIds: [] };
-const legacyRoleNames = { ADMIN: "Admin (legacy)", EMPLOYEE: "Employee (legacy)", MANAGER: "Manager (legacy)", OPERATOR: "Operator (legacy)" };
+const emptyAssignments = { departmentIds: [], companyIds: [], approverIds: [] };
 
 export default function Users({ refreshKey, onChanged }) {
   const [section, setSection] = useState("users");
@@ -51,12 +51,8 @@ export default function Users({ refreshKey, onChanged }) {
   function reset() { setEditing(null); setForm({ ...emptyForm, ...emptyAssignments }); setDialogError(""); }
   function closeEditor() { if (!busy) { editor.current.close(); reset(); } }
   function create(approver = false) {
-    if (!availableRoles.length) {
-      setError("Create a role before adding users.");
-      return;
-    }
     setError("");
-    const role = availableRoles[0].value;
+    const role = "EMPLOYEE";
     setForm({
       ...emptyForm,
       ...emptyAssignments,
@@ -74,12 +70,16 @@ export default function Users({ refreshKey, onChanged }) {
   function closeDelete() { if (!busy) { deleteDialog.current.close(); setDeleting(null); setDialogError(""); } }
   function change(event) { const { name, value } = event.target; setForm((current) => ({ ...current, [name]: value })); }
   function toggleAssignment(field, id) {
-    setForm((current) => ({
+    setForm((current) => {
+      const next = {
       ...current,
       [field]: current[field].includes(id)
         ? current[field].filter((item) => item !== id)
         : [...current[field], id],
-    }));
+      };
+      next.approverIds = updateApproverSelection(users, current, next, editing);
+      return next;
+    });
   }
   function toggleAccess(key) { setForm((current) => ({ ...current, sidebarAccess: current.sidebarAccess.includes(key) ? current.sidebarAccess.filter((item) => item !== key) : [...current.sidebarAccess, key] })); }
   async function save(event) {
@@ -88,6 +88,7 @@ export default function Users({ refreshKey, onChanged }) {
     setBusy(true); setDialogError(""); setMessage("");
     const body = {
       ...form,
+      approverIds: form.sidebarAccess.includes("APPROVALS") ? [] : form.approverIds,
       departmentId: form.departmentIds[0] || null,
     };
     if (editing && !body.password) delete body.password;
@@ -121,6 +122,10 @@ export default function Users({ refreshKey, onChanged }) {
       status: user.status,
       departmentIds: user.departmentIds || (user.departmentId ? [user.departmentId] : []),
       companyIds: user.companyIds || (user.companyId ? [user.companyId] : []),
+      approverIds: user.approverIds ?? matchingApprovers(users, {
+        departmentIds: user.departmentIds || (user.departmentId ? [user.departmentId] : []),
+        companyIds: user.companyIds || (user.companyId ? [user.companyId] : []),
+      }, user.id).map((item) => item.id),
       sidebarAccess: user.sidebarAccess ?? defaultAccess(user.role),
     });
     setDeleting(null); setError(""); setMessage("");
@@ -132,13 +137,8 @@ export default function Users({ refreshKey, onChanged }) {
   const regularUsers = users.filter((user) =>
     !(user.sidebarAccess ?? defaultAccess(user.role)).includes("APPROVALS"),
   );
-  const directoryRoles = [
-    ...availableRoles,
-    ...Object.entries(legacyRoleNames)
-      .filter(([value]) => users.some((user) => user.role === value))
-      .map(([value, name]) => ({ value, name })),
-  ];
   const assignmentsRequired = form.sidebarAccess.includes("APPROVALS");
+  const eligibleApprovers = matchingApprovers(users, form, editing);
   return (
     <section aria-label="Manage users">
       <div className="management-sections" aria-label="User Management sections">
@@ -150,11 +150,9 @@ export default function Users({ refreshKey, onChanged }) {
       {section === "roles" && <Roles roles={availableRoles} loading={loading} onChanged={setAvailableRoles} />}
       <div className="page-enter" hidden={section !== "users" && section !== "approvers"}>
       <p className="department-status" role="status">{message}</p>
-      {availableRoles.length === 0 && !loading && <p className="info">Create a role in the Roles section before adding users.</p>}
       <UsersTable
         key={section}
         users={section === "approvers" ? approverUsers : regularUsers}
-        roles={directoryRoles}
         departments={departments}
         companies={companies}
         organizeByCompany={section === "approvers"}
@@ -163,15 +161,15 @@ export default function Users({ refreshKey, onChanged }) {
         onCreate={() => create(section === "approvers")}
         onEdit={edit}
         onDelete={confirmDelete}
-        heading={section === "approvers" ? "Approver users" : "Team tree"}
-        description={section === "approvers" ? "Users with approval access who can review assigned transport requests." : "Explore your team by department and role."}
+        heading={section === "approvers" ? "Approver users" : "Users"}
+        description={section === "approvers" ? "Users with approval access who can review assigned transport requests." : "Manage users, departments and assigned approvers."}
         addLabel={section === "approvers" ? "Add approver user" : "Add user"}
         emptyTitle={section === "approvers" ? "No approver users yet" : undefined}
         emptyDescription={section === "approvers" ? "Add an approver user to give them approval access." : undefined}
       />
       <dialog ref={editor} className="user-editor-dialog" aria-labelledby="user-editor-title" onCancel={(event) => { if (busy) event.preventDefault(); else reset(); }}>
         <header className="user-dialog-heading"><div><span className="eyebrow accent">PEOPLE & ACCESS</span><h2 id="user-editor-title">{editing ? "Edit user" : "Create user"}</h2></div><button type="button" className="user-dialog-close" aria-label="Close user form" disabled={busy} onClick={closeEditor}>&times;</button></header>
-        <p className="muted">{editing ? "Update account details, organization and department assignment." : "Add a team member and choose their role and organization."}</p>
+        <p className="muted">{editing ? "Update account details, organization and department assignment." : "Add a team member and choose their organization and access."}</p>
         {dialogError && <div className="error" role="alert">{dialogError}</div>}
           <form onSubmit={save}>
             <label htmlFor="user-full-name">Full name
@@ -188,13 +186,6 @@ export default function Users({ refreshKey, onChanged }) {
             </label>
             <p className="muted" id="user-password-help">At least 6 characters, up to 72 UTF-8 bytes.{editing ? " Leave blank to keep the current password." : ""}</p>
             <div className="field-row">
-              <div className="select-field"><label htmlFor="user-role">Role</label>
-                <select id="user-role" name="role" value={form.role} onChange={change} disabled={busy || loading}>
-                  <option value="">Select a role</option>
-                  {availableRoles.map((role) => <option key={role.value} value={role.value}>{role.name}</option>)}
-                  {editing && legacyRoleNames[form.role] && <option value={form.role}>{legacyRoleNames[form.role]}</option>}
-                </select>
-              </div>
               <div className="select-field"><label htmlFor="user-status">Status</label>
                 <select id="user-status" name="status" value={form.status} onChange={change} disabled={busy || loading}>
                   <option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option>
@@ -213,7 +204,7 @@ export default function Users({ refreshKey, onChanged }) {
             </fieldset>
             <fieldset className="user-assignment" disabled={busy || loading}>
               <legend>Companies{assignmentsRequired ? " *" : ""}</legend>
-              <p className="muted">Select all companies this user can approve requests for.</p>
+              <p className="muted">{assignmentsRequired ? "Select all companies this user can approve requests for." : "Select the companies this user belongs to."}</p>
               {companies.length ? <div className="assignment-options">
                 {companies.map((company) => <label className="assignment-option" key={company.id}>
                   <input type="checkbox" checked={form.companyIds.includes(company.id)} onChange={() => toggleAssignment("companyIds", company.id)} />
@@ -222,15 +213,25 @@ export default function Users({ refreshKey, onChanged }) {
               </div> : <p className="muted">Create a company in Department Management first.</p>}
             </fieldset>
             {assignmentsRequired && (!form.departmentIds.length || !form.companyIds.length) && <p className="info">Select at least one department and company for an approver user.</p>}
+            {!assignmentsRequired && <fieldset className="user-assignment" disabled={busy || loading}>
+              <legend>Assigned approvers</legend>
+              <p className="muted">Active approvers matching both the selected departments and companies are selected automatically. Uncheck anyone you do not want to assign.</p>
+              {!form.departmentIds.length || !form.companyIds.length ? <p className="info">Select a department and company to see matching approvers.</p>
+                : eligibleApprovers.length === 0 ? <p className="info">No active approvers match these departments and companies.</p>
+                : <><div className="assignment-options">{eligibleApprovers.map((approver) => <label className="assignment-option" key={approver.id}>
+                  <input type="checkbox" checked={form.approverIds.includes(approver.id)} onChange={() => setForm((current) => ({ ...current, approverIds: current.approverIds.includes(approver.id) ? current.approverIds.filter((id) => id !== approver.id) : [...current.approverIds, approver.id] }))} />
+                  <span>{approver.fullName} (@{approver.username})</span>
+                </label>)}</div><p className="muted">{eligibleApprovers.filter((user) => form.approverIds.includes(user.id)).length} approvers selected</p></>}
+            </fieldset>}
             <fieldset className="user-access" disabled={busy || loading}>
               <legend>Sidebar access</legend>
               <p className="muted">Choose the sections this user can open. Approval and booking access also allow the actions described below.</p>
               <div className="access-options">{staffModules.map((module) => <label className="access-option" key={module.key}><input type="checkbox" checked={form.sidebarAccess.includes(module.key)} onChange={() => toggleAccess(module.key)} /><span><strong>{module.title}</strong><small>{module.description}</small></span></label>)}</div>
-              <button type="button" className="text-button" onClick={() => setForm((current) => ({ ...current, sidebarAccess: defaultAccess(current.role) }))}>Use role defaults</button>
+              <button type="button" className="text-button" onClick={() => setForm((current) => ({ ...current, sidebarAccess: [...defaultAccess("EMPLOYEE"), ...(section === "approvers" ? ["APPROVALS"] : [])] }))}>Reset access</button>
               {!form.sidebarAccess.length && <p className="info">This user can sign in but has no workspace sections until you grant access.</p>}
             </fieldset>
             <div className="user-dialog-actions">
-              <button type="submit" className="primary" disabled={busy || loading || !availableRoles.length && !editing}>{busy ? "Saving…" : editing ? "Save changes" : "Create user"}</button>
+              <button type="submit" className="primary" disabled={busy || loading}>{busy ? "Saving…" : editing ? "Save changes" : "Create user"}</button>
               <button type="button" className="secondary" disabled={busy} onClick={closeEditor}>Cancel</button>
             </div>
           </form>
