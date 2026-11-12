@@ -25,6 +25,7 @@ export default function Users({ refreshKey, onChanged }) {
   const editor = useRef(null);
   const deleteDialog = useRef(null);
 
+  // Initial full load (also re-runs when refreshKey changes e.g. after department edits)
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -47,6 +48,31 @@ export default function Users({ refreshKey, onChanged }) {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [refreshKey]);
+
+  // Background polling — silently merges server changes into local state
+  // without triggering loading spinners or full re-renders
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const people = await api("/super-admin/users");
+        if (!active) return;
+        setUsers((prev) => {
+          const next = people.users;
+          // Skip re-render entirely if nothing changed
+          if (
+            prev.length === next.length &&
+            prev.every((u, i) => u.id === next[i]?.id && u.updatedAt === next[i]?.updatedAt)
+          ) return prev;
+          return next;
+        });
+      } catch {
+        // silent — polling failure must not disrupt the UI
+      }
+    };
+    const id = setInterval(poll, 30_000);
+    return () => { active = false; clearInterval(id); };
+  }, []);
 
   function reset() { setEditing(null); setForm({ ...emptyForm, ...emptyAssignments }); setDialogError(""); }
   function closeEditor() { if (!busy) { editor.current.close(); reset(); } }
@@ -95,9 +121,12 @@ export default function Users({ refreshKey, onChanged }) {
     if (editing && !body.password) delete body.password;
     try {
       const { user } = await api(`/super-admin/users${editing ? `/${editing}` : ""}`, body, editing ? "PUT" : "POST");
+      // Optimistic local update — only the affected card re-renders, no page flicker
       setUsers((items) => [...items.filter((item) => item.id !== user.id), user].sort((a, b) => a.fullName.localeCompare(b.fullName)));
       setMessage(editing ? "User updated." : "User created.");
-      editor.current.close(); reset(); onChanged();
+      editor.current.close(); reset();
+      // For creates, update dashboard stats count (user added)
+      if (!editing) onChanged();
     } catch (err) { setDialogError(err.message); }
     finally { setBusy(false); }
   }
