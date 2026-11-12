@@ -12,6 +12,8 @@ import { api } from "./api";
 import "./styles.css";
 import Departments from "./Departments";
 import Users from "./Users";
+import { Reports, AuditLogs } from "./Reporting";
+import SystemSettings from "./SystemSettings";
 import { StaffLogin, StaffWorkspace, TransportPanel } from "./Transport";
 
 const ThemeContext = createContext(null);
@@ -723,6 +725,12 @@ function Dashboard() {
             <Departments refreshKey={departmentRefresh} onChanged={load} />
           ) : section === "User Management" ? (
             <Users refreshKey={departmentRefresh} onChanged={refreshStats} />
+          ) : section === "Reports" ? (
+            <Reports />
+          ) : section === "Audit Logs" ? (
+            <AuditLogs />
+          ) : section === "System Settings" ? (
+            <SystemSettings ThemeToggle={ThemeToggle} onChanged={load} />
           ) : ["Transport Requests", "Approval Management", "Booking Management"].includes(section) ? (
             <TransportPanel admin section={section} refreshKey={departmentRefresh} onChanged={load} />
           ) : (

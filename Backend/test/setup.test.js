@@ -89,6 +89,57 @@ async function complete() {
     .send({ setupId: data.setupId, otp: data.otp })
     .expect(201);
 }
+test("system settings protect configuration, persist profile and validate credit limits", async () => {
+  await request(app).get("/api/super-admin/settings").expect(401);
+  await request(app).put("/api/super-admin/settings/profile").send({ fullName: "Changed Name" }).expect(401);
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const result = await request(app).get("/api/super-admin/settings").set("Cookie", cookie).expect(200);
+  assert.equal(result.body.transport.minimumNoticeMinutes, 30);
+  assert.equal(result.body.security.sessionDuration, "8h");
+  assert.ok(!JSON.stringify(result.body).includes(config.JWT_SECRET));
+  assert.ok(!JSON.stringify(result.body).includes("passwordHash"));
+  await request(app).put("/api/super-admin/settings/profile").set("Cookie", cookie).send({ fullName: "Updated Admin" }).expect(200);
+  assert.equal((await User.findOne({ role: "SUPER_ADMIN" })).fullName, "Updated Admin");
+  assert.ok(await AuditLog.exists({ event: "ADMIN_PROFILE_UPDATED" }));
+  await request(app).put("/api/super-admin/settings/profile").set("Cookie", cookie).send({ fullName: "A" }).expect(400);
+  await request(app).put("/api/super-admin/settings/profile").set("Cookie", cookie).send({ fullName: "Valid Name", role: "EMPLOYEE" }).expect(400);
+  await Company.create({ name: "Example", nameKey: "example", budget: 500 });
+  await request(app).put("/api/super-admin/budget").set("Cookie", cookie).send({ creditLimit: 499 }).expect(400);
+  await request(app).put("/api/super-admin/budget").set("Cookie", cookie).send({ creditLimit: 1000 }).expect(200);
+  assert.equal((await request(app).get("/api/super-admin/budget").set("Cookie", cookie)).body.creditLimit, 1000);
+  assert.ok(await AuditLog.exists({ event: "TRANSPORT_CREDIT_LIMIT_UPDATED" }));
+  await Company.deleteMany({});
+  await request(app).put("/api/super-admin/budget").set("Cookie", cookie).send({ creditLimit: 0 }).expect(200);
+});
+
+test("audit logs enforce admin access, merge history, filter literal search and paginate", async () => {
+  const endpoint = "/api/super-admin/audit-logs";
+  await request(app).get(endpoint).expect(401);
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const admin = await User.findOne({ role: "SUPER_ADMIN" });
+  await AuditLog.deleteMany({});
+  await AuditLog.insertMany(Array.from({ length: 27 }, (_, i) => ({ event: "TEST_EVENT", userId: admin._id, ip: "127.0.0.1", createdAt: new Date(`2026-11-11T19:00:${String(i).padStart(2, "0")}Z`) })));
+  await TransportRequest.create({ requester: admin._id, requesterDetails: { fullName: "Example" }, approverDetails: {}, service: "RIDE", pickupAt: new Date(), history: [{ action: "SUBMITTED", actor: admin._id, actorName: "Example", at: new Date("2026-11-11T19:00:30Z"), note: "Literal .* note" }] });
+  const get = (query = "") => request(app).get(endpoint + query).set("Cookie", cookie);
+  const first = (await get().expect(200)).body;
+  assert.equal(first.total, 28);
+  assert.equal(first.logs.length, 25);
+  assert.equal(first.logs[0].source, "TRANSPORT");
+  assert.equal(first.logs[1].actorName, admin.fullName);
+  assert.equal((await get("?page=2").expect(200)).body.logs.length, 3);
+  assert.equal((await get("?source=SYSTEM").expect(200)).body.total, 27);
+  assert.equal((await get("?search=.*").expect(200)).body.total, 1);
+  assert.equal((await get("?from=2026-11-12&to=2026-11-12").expect(200)).body.total, 28);
+  assert.equal((await get("?to=2026-11-11").expect(200)).body.total, 0);
+  await get("?page=0").expect(400);
+  await get("?from=2026-02-30").expect(400);
+  await get("?from=2026-11-13&to=2026-11-12").expect(400);
+  const token = jwt.sign({ role: "EMPLOYEE" }, config.JWT_SECRET, { subject: admin.id, issuer: "ctms", audience: "ctms-staff" });
+  await request(app).get(endpoint).set("Cookie", `ctms_staff=${token}`).expect(401);
+});
+
 test("full setup, single-use code, authenticated dashboard, logout, and username/email login", async () => {
   assert.equal(
     (await request(app).get("/api/setup/status")).body.setupRequired,

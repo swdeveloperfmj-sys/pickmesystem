@@ -14,6 +14,7 @@ import {
 import { z } from "zod";
 import { User, SuperAdminSetup, SetupState, AuditLog, Department, Company, Location, Role, TransportRequest, OrganizationBudget } from "./models.js";
 import { registerTransport } from "./transport.js";
+import { registerAuditLogs } from "./audit.js";
 import { isAllowedOrigin } from "./origin.js";
 import { sopConfig } from "./sop.js";
 import { staffModules, sidebarAccess, matchesApprover } from "./access.js";
@@ -461,6 +462,20 @@ export function createApp({ config, mailer, limits = true }) {
     res.json({ user: publicUser(user) });
   });
   app.use("/api/super-admin", requireSuperAdmin);
+  registerAuditLogs(app);
+  app.get("/api/super-admin/settings", (req, res) => {
+    res.set("Cache-Control", "no-store").json({
+      user: publicUser(req.user),
+      security: { sessionDuration: config.JWT_EXPIRES_IN, otpExpiryMinutes: config.OTP_EXPIRES_MINUTES, otpResendSeconds: config.OTP_RESEND_SECONDS, secureCookies: config.NODE_ENV === "production" },
+      transport: { minimumNoticeMinutes: sopConfig.minimumNoticeMinutes, vehicles: sopConfig.vehicles, timezone: "Asia/Colombo", currency: "LKR" },
+    });
+  });
+  app.put("/api/super-admin/settings/profile", async (req, res) => {
+    const { fullName } = z.object({ fullName: registration.shape.fullName }).strict().parse(req.body);
+    const user = await User.findByIdAndUpdate(req.user._id, { $set: { fullName } }, { returnDocument: "after" });
+    await audit("ADMIN_PROFILE_UPDATED", req, req.user._id);
+    res.json({ user: publicUser(user) });
+  });
   app.get("/api/super-admin/sop", (_req, res) => res.json(sopConfig));
   app.get("/api/super-admin/roles", async (_req, res) => {
     const roles = await Role.find().sort({ nameKey: 1 });
@@ -715,6 +730,7 @@ export function createApp({ config, mailer, limits = true }) {
     const allocated = await Company.aggregate([{ $group: { _id: null, total: { $sum: "$budget" } } }]);
     if ((allocated[0]?.total || 0) > creditLimit) throw new ApiError(400, "Weekly credit limit cannot be lower than the total weekly company budgets.");
     const settings = await OrganizationBudget.findByIdAndUpdate("organization", { $set: { creditLimit } }, { upsert: true, returnDocument: "after", setDefaultsOnInsert: true });
+    await audit("TRANSPORT_CREDIT_LIMIT_UPDATED", req, req.user._id);
     res.json({ creditLimit: settings.creditLimit });
   });
   async function saveDepartment(req, res, update) {
