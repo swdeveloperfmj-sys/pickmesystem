@@ -618,6 +618,11 @@ input:focus {
   line-height: 1;
   animation: approval-notification-pulse 2s ease-out infinite;
 }
+.sidebar nav button .booking-notification { gap: 3px; animation: booking-notification-blink 1.5s ease-in-out infinite; }
+@keyframes booking-notification-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
 @keyframes approval-notification-pulse {
   0% { box-shadow: 0 0 0 0 #b4231870; }
   70%, 100% { box-shadow: 0 0 0 6px #b4231800; }
@@ -1530,7 +1535,7 @@ textarea::placeholder { color: var(--muted); }
 .staff-support-grid p { margin: 7px 0 0; font-size: 11px; line-height: 1.8; color: var(--muted); }
 .staff-policy-status { font-size: 9px; padding: 4px 7px; border-radius: 5px; color: var(--accent-text); background: var(--gold-soft); white-space: nowrap; }
 .staff-policy-status.is-read { color: var(--muted); background: var(--input); }
-.staff-guidelines button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; }
+.staff-guidelines button, .staff-guidelines .extension-download { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; }
 .staff-profile-notice { display: flex; align-items: flex-start; gap: 14px; padding: 20px; border: 1px solid var(--soft-border); border-radius: 12px; background: var(--gold-soft); }
 .staff-profile-notice .staff-support-icon { border: 1px solid var(--soft-border); background: var(--surface); }
 .staff-profile-notice p { color: var(--soft-text); }
@@ -1583,9 +1588,14 @@ textarea::placeholder { color: var(--muted); }
   .staff-stat div > span { font-size: 10px; }
   .staff-guidelines { grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 18px; }
   .staff-support-icon { width: 34px; height: 34px; }
-  .staff-guidelines button { grid-column: 1 / -1; width: 100%; }
+  .staff-guidelines button, .staff-guidelines .extension-download { grid-column: 1 / -1; width: 100%; }
   .staff-profile-notice { padding: 18px; gap: 12px; }
   .staff-policy-dialog { padding: 20px; max-height: calc(100dvh - 24px); }
   .staff-policy-heading h2 { font-size: 23px; }
   .staff-policy-footer > button { width: 100%; }
 }
+
+.extension-download { padding: 10px 16px; border-radius: 8px; text-decoration: none; text-align: center; font-weight: 600; }
+.staff-support-copy details { margin-top: 10px; }
+.staff-support-copy summary { cursor: pointer; font-weight: 600; }
+.staff-support-copy ol { padding-left: 20px; line-height: 1.7; }

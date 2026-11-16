@@ -489,11 +489,8 @@ test(
       await page.getByRole("button", { name: "New request", exact: true }).click();
       await page.getByLabel("Requester designation", { exact: true }).fill("Production Executive");
       assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "1");
-      assert.equal(await page.getByLabel("Number of passengers", { exact: true }).getAttribute("readonly"), "");
-      await page.getByLabel("Additional passengers (optional)", { exact: true }).fill("Person Two | Executive\n\nPerson Three | Engineer");
-      assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "3");
-      await page.getByLabel("Additional passengers (optional)", { exact: true }).fill("Person Two | Executive\n   ");
-      assert.equal(await page.getByLabel("Number of passengers", { exact: true }).inputValue(), "2");
+      assert.equal(await page.getByLabel("Additional passengers (optional)", { exact: true }).count(), 0);
+      await page.getByLabel("Number of passengers", { exact: true }).fill("2");
       await page.getByText("Assigned approvers: Sales Approver", { exact: true }).waitFor();
       const future = await page.evaluate(() => { const date = new Date(Date.now() + 3 * 3600000); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); });
       await page.getByLabel("Pickup date and time", { exact: true }).fill(future);
@@ -509,7 +506,7 @@ test(
       await page.getByText("Pending approval", { exact: true }).waitFor();
       const savedTrip = await TransportRequest.findOne({ requester: staffRequester._id });
       assert.equal(savedTrip.passengerCount, 2);
-      assert.equal(savedTrip.passengers.length, 2);
+      assert.equal(savedTrip.passengers.length, 1);
       assert.equal(await page.locator(".staff-stat").filter({ hasText: "Awaiting approval" }).locator("strong").innerText(), "1");
       await checkResponsiveLayout();
       await page.getByRole("switch", { name: "Dark mode" }).click();

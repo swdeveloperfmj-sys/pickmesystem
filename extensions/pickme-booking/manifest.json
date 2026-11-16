@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "CTMS PickMe Booking Helper",
+  "version": "1.0.0",
+  "description": "Fill approved CTMS ride details in PickMe Business for review.",
+  "permissions": ["storage"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["http://localhost/*", "http://127.0.0.1/*"], "js": ["bridge.js"] },
+    { "matches": ["https://business.pickme.lk/*"], "js": ["pickme.js"] }
+  ]
+}

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { staffModules } from "./access";
-import usePendingApprovals from "./usePendingApprovals";
+import { staffNavigation } from "./access";
+import usePendingRequests from "./usePendingRequests";
 
 export default function StaffSidebar({ user, Brand, section, onSelect, onLogout, Icon, collapsed, setCollapsed }) {
   const [open, setOpen] = useState(false);
-  const pendingApprovals = usePendingApprovals(user);
+  const pendingApprovals = usePendingRequests(user);
+  const pendingBookings = usePendingRequests(user, "BOOKINGS");
   useEffect(() => {
     if (!open) return;
     const escape = (event) => { if (event.key === "Escape") { setOpen(false); document.querySelector(".menu-toggle")?.focus(); } };
@@ -20,10 +21,10 @@ export default function StaffSidebar({ user, Brand, section, onSelect, onLogout,
       </div>
       <div className={`sidebar-menu${open ? " is-open" : ""}`} id="staff-navigation">
         <span className="nav-label">YOUR WORKSPACE</span>
-        <nav aria-label="Staff workspace">{staffModules.filter((module) => user.sidebarAccess.includes(module.key)).map((module) => {
-          const pending = module.key === "APPROVALS" ? pendingApprovals : 0;
+        <nav aria-label="Staff workspace">{staffNavigation(user).map((module) => {
+          const pending = module.key === "APPROVALS" ? pendingApprovals : module.key === "BOOKINGS" ? pendingBookings : 0;
           const accessibleTitle = pending ? `${module.title}, ${pending} pending ${pending === 1 ? "request" : "requests"}` : module.title;
-          return <button key={module.key} type="button" title={accessibleTitle} aria-label={accessibleTitle} aria-current={section === module.key ? "page" : undefined} className={`${section === module.key ? "active" : ""}${pending ? " has-pending-approvals" : ""}`} onClick={() => { onSelect(module.key); setCollapsed(false); setOpen(false); }}><span aria-hidden="true"><Icon type={module.icon} size={19} /></span><span className="nav-text">{module.title}</span>{pending > 0 && <span className="approval-notification" aria-hidden="true">{pending > 99 ? "99+" : pending}</span>}</button>;
+          return <button key={module.key} type="button" title={accessibleTitle} aria-label={accessibleTitle} aria-current={section === module.key ? "page" : undefined} className={`${section === module.key ? "active" : ""}${pending ? " has-pending-approvals" : ""}`} onClick={() => { onSelect(module.key); setCollapsed(false); setOpen(false); }}><span aria-hidden="true"><Icon type={module.icon} size={19} /></span><span className="nav-text">{module.title}</span>{pending > 0 && <span className={`approval-notification${module.key === "BOOKINGS" ? " booking-notification" : ""}`} aria-hidden="true">{module.key === "BOOKINGS" && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>}{pending > 99 ? "99+" : pending}</span>}</button>;
         })}</nav>
         <div className="sidebar-bottom"><span className="avatar">{user.fullName[0]}</span><div><strong>{user.fullName}</strong><small>Staff workspace</small></div><button type="button" title="Logout" aria-label="Log out of workspace" onClick={onLogout}><Icon type="logout" size={18} /></button></div>
       </div>

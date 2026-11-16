@@ -45,7 +45,7 @@ function whatsapp(record) {
     `Approver: ${record.approverDetails.fullName} | ${record.approverDetails.designation}`, `Pickup: ${time} (Sri Lanka)`,
     `Pickup location: ${record.pickup}`, `Stopover: ${record.stopover || "None"}`, `Destination: ${record.destination}`, `Vehicle: ${record.vehicle.replaceAll("_", " ")}`,
     `Official purpose / justification: ${record.purpose || record.justification}`];
-  if (record.service === "RIDE") rows.push(`Passengers (${record.passengers.length}): ${record.passengers.map((person) => `${person.name} (${person.designation})`).join(", ")}`);
+  if (record.service === "RIDE") rows.push(`Passengers (${record.passengerCount ?? record.passengers.length}): ${record.passengers.map((person) => `${person.name} (${person.designation})`).join(", ")}`);
   else rows.push(`Receiver: ${record.receiverName} | ${record.receiverContact}`, `Items/samples: ${record.itemDetails}`);
   if (record.approvalSharedAt) rows.push(`Approved by: ${record.approverDetails.approvedBy || record.approverDetails.fullName}`, `Approval recorded: ${record.approvalSharedAt.toISOString()}`);
   return rows.join("\n");
@@ -99,6 +99,11 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     });
     res.set("Cache-Control", "no-store").json({ count });
   });
+  router.get("/bookings/pending-count", async (req, res) => {
+    if (!canBook(req.user)) fail(403, "Booking access is required.");
+    const count = await TransportRequest.countDocuments({ status: "APPROVED" });
+    res.set("Cache-Control", "no-store").json({ count });
+  });
   async function assignedApprovers(user) {
     if (!user.approvers?.length) fail(400, "Your administrator must assign an approver before you can request transport.");
     const people = await User.find({ _id: { $in: user.approvers } });
@@ -130,7 +135,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     const approvers = await assignedApprovers(user);
     if (data.service === "RIDE") {
       if (!data.passengers.length || !data.passengers.some((person) => person.name.toLowerCase() === user.fullName.toLowerCase())) fail(400, "Ride passenger details must include you.");
-      if (data.passengerCount !== data.passengers.length) fail(400, "Passenger count must match the listed passengers.");
+      if (data.passengerCount < 1) fail(400, "Ride requests require at least one passenger.");
       if (new Set(data.passengers.map((person) => person.name.toLowerCase())).size !== data.passengers.length) fail(400, "List each passenger once.");
     } else {
       text.parse(data.receiverName); contact.parse(data.receiverContact); text.parse(data.itemDetails);

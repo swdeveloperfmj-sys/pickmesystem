@@ -617,18 +617,19 @@ test("SOP workflow collects request details without transport profiles and enfor
   await owner.post(base).send({ ...body, pickupAt: new Date(Date.now() + 20 * 60000).toISOString() }).expect(400);
   await owner.post(base).send({ ...body, vehicle: "CAR" }).expect(400);
   await owner.post(base).send({ ...body, passengers: [] }).expect(400);
-  await owner.post(base).send({ ...body, passengerCount: 2 }).expect(400);
+  await owner.post(base).send({ ...body, passengerCount: 0 }).expect(400);
   await owner.post(base).send({ ...body, passengers: [{ name: "Someone Else", designation: "Executive" }] }).expect(400);
   await owner.post(base).send({ ...body, requesterContact: "invalid" }).expect(400);
   await owner.post(base).send({ ...body, departmentId: "not-an-id" }).expect(400);
   await owner.post(base).send({ ...body, approverId: outsider.id }).expect(400);
-  const submitted = await owner.post(base).send(body).expect(201);
+  const submitted = await owner.post(base).send({ ...body, passengerCount: 2 }).expect(201);
   const record = submitted.body.request;
   assert.equal(record.requesterDetails.contact, body.requesterContact);
   assert.equal(record.requesterDetails.designation, "Production Executive");
   assert.deepEqual(record.approvers.map(String), [approver.id]);
   assert.equal(record.requesterDetails.workLocation, "");
-  assert.equal(record.passengerCount, 1);
+  assert.equal(record.passengerCount, 2);
+  assert.equal(record.passengers.length, 1);
   assert.equal(record.requesterDetails.department, "Production");
   assert.equal((await other.get(base)).body.requests.length, 0);
   assert.equal((await wrongReviewer.get(base)).body.requests.length, 0);
@@ -641,6 +642,10 @@ test("SOP workflow collects request details without transport profiles and enfor
   await TransportRequest.updateOne({ _id: record.id }, { pickupAt: new Date(pickupAt) });
   const approved = await reviewer.post(`${base}/${record.id}/action`).send({ action: "APPROVE", version: 0, approvalShared: true }).expect(200);
   assert.equal(approved.body.request.status, "APPROVED");
+  await owner.get("/api/transport/bookings/pending-count").expect(403);
+  const pendingBookings = await booking.get("/api/transport/bookings/pending-count").expect(200);
+  assert.equal(pendingBookings.body.count, 1);
+  assert.equal(pendingBookings.headers["cache-control"], "no-store");
   await owner.put(`${base}/${record.id}`).send({ ...body, version: 0 }).expect(409);
   await booking.post(`${base}/${record.id}/action`).send({ action: "BOOK", version: 1, bookingReference: "REF1" }).expect(400);
   for (const bookingAmount of [undefined, 0, -1, 1.234]) {
@@ -650,6 +655,7 @@ test("SOP workflow collects request details without transport profiles and enfor
   assert.equal(booked.body.request.bookingAmount, 1500.50);
   assert.equal(booked.body.request.bookingReference, "");
   assert.equal(booked.body.request.status, "BOOKED");
+  assert.equal((await booking.get("/api/transport/bookings/pending-count").expect(200)).body.count, 0);
   await owner.post(`${base}/${record.id}/action`).send({ action: "COMPLETE", version: 2 }).expect(400);
   await owner.post(`${base}/${record.id}/action`).send({ action: "COMPLETE", version: 2, routeVerified: true, completionMessageChecked: true }).expect(200);
   assert.match((await owner.get(`${base}/${record.id}/message`)).body.text, /Approved by: approver/);
@@ -660,7 +666,7 @@ test("SOP workflow collects request details without transport profiles and enfor
     .send({ action: "COMPLETE", version: 3, routeVerified: true, completionMessageChecked: true }).expect(403);
   const group = [...body.passengers, { name: "Person Two", designation: "Executive" }, { name: "Person Three", designation: "Executive" }];
   await owner.post(base).send({ ...body, vehicle: "CAR", passengers: group }).expect(400);
-  await owner.post(base).send({ ...body, vehicle: "CAR", passengers: group, passengerCount: 3, groupCarEligible: true }).expect(201);
+  await owner.post(base).send({ ...body, vehicle: "CAR", passengerCount: 3, groupCarEligible: true }).expect(201);
   const flash = { ...body, service: "FLASH", passengers: [], passengerCount: 0, deliveryRoute: "CUSTOMER_DELIVERY", receiverName: "Receiver", receiverContact: "0771234567", itemDetails: "Fabric samples" };
   await owner.post(base).send(flash).expect(400);
   await owner.post(base).send({ ...flash, vehicle: "MOTORBIKE", receiverContact: "bad" }).expect(400);

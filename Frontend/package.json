@@ -4,6 +4,9 @@
   "description": "",
   "private": true,
   "scripts": {
+    "package:extension": "node scripts/package-extension.mjs",
+    "predev": "npm run package:extension",
+    "prebuild": "npm run package:extension",
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1"
