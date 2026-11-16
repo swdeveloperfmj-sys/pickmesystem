@@ -63,13 +63,13 @@ export function SopSummary() {
     <p className="muted">Source document status: For management approval.</p>
     <ul>
       <li>Official, necessary and justified travel/deliveries only. Personal trips and home-to-work commuting are prohibited.</li>
-      <li>Submit your own request. Your request goes to the approvers assigned to you, and any of them can accept it. Share the request and approval in WhatsApp at least 30 minutes before pickup.</li>
+      <li>Submit your own request. If you have approval access, your request is automatically approved and sent to booking staff; otherwise it goes to your assigned approvers. Share the request in WhatsApp at least 30 minutes before pickup.</li>
       <li>Use Ride for passengers and Flash for items/samples. Inter-factory/customer deliveries use a motorbike; otherwise executives/below use a three-wheeler. A car needs manager eligibility or at least three employees in the Executive category or below travelling together, with approval.</li>
       <li>The Administrative Assistant checks approval and completeness, then books in PickMe. This system records that external booking.</li>
       <li>Coordinate with the driver, verify pickup/route/destination and the completion message, and report changes, cancellations or delays immediately.</li>
       <li>HR must explain the SOP to new recruits and retain their acknowledgement in the personal file. This acknowledgement record supplements that process.</li>
     </ul>
-    <p className="muted">Enter your contact with each request. Department and designation come from your account. Your Super Administrator assigns the approvers for your account. Any of those approvers can accept a request; authorized booking staff record the external PickMe booking.</p>
+    <p className="muted">Enter your contact with each request. Department and designation come from your account. Your Super Administrator assigns approvers to accounts without approval access. Accounts with approval access have their own requests automatically approved; authorized booking staff then record the external PickMe booking.</p>
   </section>;
 }
 
@@ -141,6 +141,7 @@ function RequestForm({ user, approvers, departments, record, onClose, onSaved })
     ...(record ? { ...record, pickupAt: localDate(record.pickupAt) } : {}) }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const autoApprove = Boolean(user.permissions?.approve);
   function change(event) { const { name, value, type, checked } = event.target; setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value })); }
   async function submit(event) {
     event.preventDefault();
@@ -164,7 +165,7 @@ function RequestForm({ user, approvers, departments, record, onClose, onSaved })
         <label>Department<input value={user.department || "No department assigned"} readOnly required={!!user.departmentId} /></label>
         <h3><span>02</span>Journey &amp; approval</h3>
         <div className="select-field"><label htmlFor="trip-service">Service</label><select id="trip-service" name="service" value={form.service} onChange={change}><option value="RIDE">PickMe Ride (passengers)</option><option value="FLASH">PickMe Flash (items/samples)</option></select></div>
-        {approvers.length > 0 ? <p className="info">Assigned approvers: {approvers.map((person) => person.fullName).join(", ")}. Any of them can accept this request.</p> : <p className="error">No approver is assigned to your account. Ask your administrator to assign an approver before requesting transport.</p>}
+        {autoApprove ? <p className="info">Because your account has approval access, this request will be automatically approved and sent to Booking Management.</p> : approvers.length > 0 ? <p className="info">Assigned approvers: {approvers.map((person) => person.fullName).join(", ")}. Any of them can accept this request.</p> : <p className="error">No approver is assigned to your account. Ask your administrator to assign an approver before requesting transport.</p>}
         <div className="select-field"><label htmlFor="trip-vehicle">Vehicle</label><select id="trip-vehicle" name="vehicle" value={form.vehicle} onChange={change}><option value="MOTORBIKE">Motorbike</option><option value="THREE_WHEELER">Three-wheeler</option><option value="CAR">Car</option></select></div>
         <p className="muted">Inter-factory/customer deliveries: motorbike. Otherwise executives/below: three-wheeler; managers: car or three-wheeler. Three or more passengers may use a car with approval.</p>
         {form.service === "RIDE" && <><label>Number of passengers<input type="number" name="passengerCount" aria-label="Number of passengers" value={form.passengerCount ?? 1} onChange={(event) => setForm((current) => ({ ...current, passengerCount: event.target.value === "" ? "" : Number(event.target.value) }))} required min="1" max="10" step="1" aria-describedby="passenger-count-help" /><small id="passenger-count-help">Enter the total number of passengers, including you.</small></label>{form.vehicle === "CAR" && !["MANAGER", "ADMIN"].includes(user.role) && <label className="check-label"><input type="checkbox" name="groupCarEligible" checked={form.groupCarEligible} onChange={change} required />All {form.passengerCount} passengers are employees in the Executive category or below; at least three are travelling together. This car request requires approval.</label>}</>}
@@ -173,7 +174,7 @@ function RequestForm({ user, approvers, departments, record, onClose, onSaved })
         <div className="field-row"><label>Pickup location<input name="pickup" value={form.pickup} onChange={change} required minLength={2} maxLength={500} /></label><label>Destination<input name="destination" value={form.destination} onChange={change} required minLength={2} maxLength={500} /></label></div>
         <label>Stopover (optional)<input name="stopover" value={form.stopover} onChange={change} maxLength={500} /></label>
         <label>Official purpose / justification<textarea name="purpose" value={form.purpose} onChange={change} required minLength={2} maxLength={500} placeholder="Explain the official reason for this transport request" /></label>
-        <div className="department-actions"><button className="primary" disabled={approvers.length === 0}>{busy ? "Submitting…" : "Submit for approval"}</button><button className="secondary" type="button" onClick={onClose}>Cancel</button></div>
+        <div className="department-actions"><button className="primary" disabled={!autoApprove && approvers.length === 0}>{busy ? "Submitting…" : autoApprove ? "Submit request" : "Submit for approval"}</button><button className="secondary" type="button" onClick={onClose}>Cancel</button></div>
       </fieldset>
     </form>
   </section>;

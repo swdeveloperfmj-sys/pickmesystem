@@ -675,6 +675,48 @@ test("SOP workflow collects request details without transport profiles and enfor
   await owner.get(base).expect(401);
 });
 
+test("requesters with approval access are automatically approved and appear in the booking queue", async () => {
+  const department = await Department.create({ name: "Transport", nameKey: "transport" });
+  const company = await Company.create({ name: "Transport Co", nameKey: "transport co" });
+  const password = "Staff123";
+  const passwordHash = await bcrypt.hash(password, 12);
+  const approver = await User.create({
+    fullName: "Alex Approver", username: "alex.approver", passwordHash, contact: "0771234567",
+    designation: "Sales Manager", role: "MANAGER", department: department._id,
+    departments: [department._id], company: company._id, companies: [company._id],
+  });
+  const assistant = await User.create({
+    fullName: "Booking Assistant", username: "booking.assistant", passwordHash, contact: "0771234567",
+    designation: "Administrative Assistant", role: "OPERATOR",
+  });
+  const requester = request.agent(app);
+  const booking = request.agent(app);
+  await requester.post("/api/transport/auth/login").send({ username: approver.username, password }).expect(200);
+  await booking.post("/api/transport/auth/login").send({ username: assistant.username, password }).expect(200);
+  await requester.post("/api/transport/acknowledge").send({ acknowledged: true }).expect(200);
+
+  const record = (await requester.post("/api/transport/requests").send({
+    requesterContact: approver.contact, departmentId: department.id, passengerCount: 1, service: "RIDE",
+    pickupAt: new Date(Date.now() + 2 * 3600000).toISOString(), pickup: "Office", destination: "Factory",
+    vehicle: "THREE_WHEELER", purpose: "Official review", justification: "Production review",
+    passengers: [{ name: approver.fullName, designation: approver.designation }],
+  }).expect(201)).body.request;
+  assert.equal(record.status, "APPROVED");
+  assert.equal(String(record.approver), approver.id);
+  assert.deepEqual(record.approvers, []);
+  assert.equal(record.approverDetails.approvedBy, approver.fullName);
+  assert.ok(record.approvalSharedAt);
+  assert.deepEqual(record.history.map((item) => item.action), ["SUBMITTED", "AUTO_APPROVED"]);
+
+  const queued = await booking.get("/api/transport/requests").expect(200);
+  assert.equal(queued.body.requests[0].id, record.id);
+  assert.equal((await booking.get("/api/transport/bookings/pending-count").expect(200)).body.count, 1);
+  const booked = await booking.post(`/api/transport/requests/${record.id}/action`).send({
+    action: "BOOK", version: 0, bookingAmount: 1200, externalActionConfirmed: true,
+  }).expect(200);
+  assert.equal(booked.body.request.status, "BOOKED");
+});
+
 test("Super Admin sidebar grants persist, control staff actions, and revoke access in an existing session", async () => {
   const verified = await complete();
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
