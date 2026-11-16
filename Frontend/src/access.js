@@ -7,3 +7,9 @@ export const staffModules = [
   { key: "HISTORY", title: "Request History", icon: "clock", description: "View activity on requests this user can access" },
 ];
 export const defaultAccess = (role) => ["DASHBOARD", "REQUESTS", ...(["MANAGER", "ADMIN"].includes(role) ? ["APPROVALS"] : []), ...(role === "OPERATOR" ? ["BOOKINGS"] : [])];
+
+// Booking setup follows booking access; it is not a separate workflow permission.
+export const staffNavigation = (user) => [
+  ...staffModules.filter((module) => user.sidebarAccess.includes(module.key)),
+  ...(user.sidebarAccess.includes("BOOKINGS") ? [{ key: "SETTINGS", title: "Settings", icon: "settings" }] : []),
+];

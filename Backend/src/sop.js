@@ -19,8 +19,8 @@ export const transportPermissions = (user) => ({
   request: canRequest(user), approve: canApprove(user), book: canBook(user),
   monitor: user.role === "SUPER_ADMIN",
 });
-export function eligibleVehicles({ service, category, passengers, deliveryRoute, groupCarEligible }) {
+export function eligibleVehicles({ service, category, passengerCount, deliveryRoute, groupCarEligible }) {
   if (service === "FLASH" && ["BETWEEN_FACTORIES", "CUSTOMER_DELIVERY"].includes(deliveryRoute)) return ["MOTORBIKE"];
-  if (category === "MANAGER" || (service === "RIDE" && passengers.length >= 3 && groupCarEligible)) return ["THREE_WHEELER", "CAR"];
+  if (category === "MANAGER" || (service === "RIDE" && passengerCount >= 3 && groupCarEligible)) return ["THREE_WHEELER", "CAR"];
   return ["THREE_WHEELER"];
 }

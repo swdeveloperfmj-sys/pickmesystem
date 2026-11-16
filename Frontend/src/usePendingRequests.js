@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 
-export default function usePendingApprovals(user) {
+export default function usePendingRequests(user, module = "APPROVALS") {
   const [count, setCount] = useState(0);
-  const enabled = user.sidebarAccess.includes("APPROVALS");
+  const enabled = user.sidebarAccess.includes(module);
   useEffect(() => {
     setCount(0);
     if (!enabled) return;
@@ -15,7 +15,7 @@ export default function usePendingApprovals(user) {
       clearTimeout(timer);
       inFlight = true;
       try {
-        const data = await api("/transport/approvals/pending-count");
+        const data = await api(`/transport/${module === "BOOKINGS" ? "bookings" : "approvals"}/pending-count`);
         if (!disposed) setCount(data.count);
       } catch (error) {
         if (!disposed && [401, 403].includes(error.status)) setCount(0);
@@ -35,6 +35,6 @@ export default function usePendingApprovals(user) {
       window.removeEventListener("transport-request-changed", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [user.id, enabled]);
+  }, [user.id, enabled, module]);
   return enabled ? count : 0;
 }
