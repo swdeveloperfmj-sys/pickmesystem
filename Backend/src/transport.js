@@ -52,6 +52,8 @@ function whatsapp(record) {
 }
 
 export function registerTransport(app, { config, requireSuperAdmin }) {
+  const cookieSameSite =
+    config.NODE_ENV === "production" ? "none" : "strict";
   const dummyHash = bcrypt.hashSync(randomUUID(), 12);
   app.post("/api/transport/auth/login", rateLimit({ windowMs: 15 * 60000, limit: 10 }), async (req, res) => {
     const body = z.object({ username: z.string().trim().toLowerCase().min(1).max(40), password: z.string().min(1).max(200) }).strict().parse(req.body);
@@ -60,7 +62,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     if (!valid || !active(user) || user.role === "SUPER_ADMIN") fail(401, "Invalid credentials or account unavailable.");
     const token = jwt.sign({ role: user.role }, config.JWT_SECRET, { subject: user.id, expiresIn: config.JWT_EXPIRES_IN, issuer: "ctms", audience: "ctms-staff", algorithm: "HS256" });
     const { exp } = jwt.decode(token);
-    res.cookie("ctms_staff", token, { httpOnly: true, secure: config.NODE_ENV === "production", sameSite: "strict", path: "/api/transport", maxAge: Math.max(0, exp * 1000 - Date.now()) });
+    res.cookie("ctms_staff", token, { httpOnly: true, secure: config.NODE_ENV === "production", sameSite: cookieSameSite, path: "/api/transport", maxAge: Math.max(0, exp * 1000 - Date.now()) });
     res.json({ user: staffProfile(user) });
   });
   async function requireStaff(req, _res, next) {
@@ -75,7 +77,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
   const router = express.Router();
   router.get("/me", async (req, res) => res.json({ user: staffProfile(req.user, req.user.department && await Department.findById(req.user.department)) }));
   router.post("/auth/logout", (_req, res) => {
-    res.clearCookie("ctms_staff", { httpOnly: true, secure: config.NODE_ENV === "production", sameSite: "strict", path: "/api/transport" });
+    res.clearCookie("ctms_staff", { httpOnly: true, secure: config.NODE_ENV === "production", sameSite: cookieSameSite, path: "/api/transport" });
     res.sendStatus(204);
   });
   router.get("/config", (_req, res) => res.json(sopConfig));

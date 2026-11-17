@@ -144,6 +144,8 @@ const publicUser = (user) => ({
 });
 export function createApp({ config, mailer, limits = true }) {
   const app = express();
+  const cookieSameSite =
+    config.NODE_ENV === "production" ? "none" : "strict";
   app.disable("x-powered-by");
   app.use(helmet(), express.json({ limit: "16kb" }), cookieParser());
   app.get("/", (_req, res) => res.json({ message: "CTMS API is running." }));
@@ -151,7 +153,27 @@ export function createApp({ config, mailer, limits = true }) {
     res.set("Cache-Control", "no-store");
     next();
   });
-  // Same-origin cookies; do not trust arbitrary forwarded headers or enable wildcard CORS.
+  app.use("/api", (req, res, next) => {
+    const origin = req.get("Origin");
+    if (origin && isAllowedOrigin(origin, config)) {
+      res.set("Access-Control-Allow-Origin", origin);
+      res.set("Access-Control-Allow-Credentials", "true");
+      res.vary("Origin");
+      if (req.method === "OPTIONS") {
+        res.set(
+          "Access-Control-Allow-Methods",
+          "GET, HEAD, POST, PUT, DELETE, OPTIONS",
+        );
+        res.set("Access-Control-Allow-Headers", "Content-Type");
+        res.vary("Access-Control-Request-Method");
+        res.vary("Access-Control-Request-Headers");
+        return res.sendStatus(204);
+      }
+    } else if (req.method === "OPTIONS" && origin) {
+      return res.status(403).json({ message: "Request origin is not allowed." });
+    }
+    next();
+  });
   app.use("/api", (req, _res, next) => {
     if (
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
@@ -216,7 +238,7 @@ export function createApp({ config, mailer, limits = true }) {
     res.cookie("ctms_session", token, {
       httpOnly: true,
       secure: config.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: cookieSameSite,
       path: "/api/super-admin",
       maxAge: Math.max(0, exp * 1000 - Date.now()),
     });
@@ -771,7 +793,7 @@ export function createApp({ config, mailer, limits = true }) {
     res.clearCookie("ctms_session", {
       path: "/api/super-admin",
       httpOnly: true,
-      sameSite: "strict",
+      sameSite: cookieSameSite,
       secure: config.NODE_ENV === "production",
     });
     res.sendStatus(204);

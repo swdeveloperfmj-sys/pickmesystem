@@ -1,7 +1,9 @@
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+
 export async function api(path, body, method) {
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${apiBaseUrl}/api${path}`, {
     method: method || (body === undefined ? "GET" : "POST"),
-    credentials: "same-origin",
+    credentials: "include",
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });

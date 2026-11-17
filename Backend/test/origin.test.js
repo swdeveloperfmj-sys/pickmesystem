@@ -60,3 +60,35 @@ test("production continues to require the exact configured origin", async () => 
     .send({})
     .expect(403);
 });
+
+test("production allows credentialed API requests only from the configured frontend", async () => {
+  const frontendOrigin = "https://frontend.example.com";
+  const app = createApp({
+    config: {
+      ...config,
+      APP_ORIGIN: frontendOrigin,
+      NODE_ENV: "production",
+    },
+    mailer: {},
+    limits: false,
+  });
+  const response = await request(app)
+    .get("/api/super-admin/auth/me")
+    .set("Origin", frontendOrigin)
+    .expect(401);
+  assert.equal(response.headers["access-control-allow-origin"], frontendOrigin);
+  assert.equal(response.headers["access-control-allow-credentials"], "true");
+
+  await request(app)
+    .options("/api/super-admin/auth/login")
+    .set("Origin", frontendOrigin)
+    .set("Access-Control-Request-Method", "POST")
+    .set("Access-Control-Request-Headers", "content-type")
+    .expect(204)
+    .expect("Access-Control-Allow-Origin", frontendOrigin);
+  await request(app)
+    .options("/api/super-admin/auth/login")
+    .set("Origin", "https://attacker.example")
+    .set("Access-Control-Request-Method", "POST")
+    .expect(403);
+});

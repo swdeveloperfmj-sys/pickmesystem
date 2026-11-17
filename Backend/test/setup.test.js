@@ -1117,5 +1117,6 @@ test("production cookie has Secure and secrets are rejected when configuration i
   app = createApp({ config: { ...config, NODE_ENV: "production" }, mailer });
   const result = await complete();
   assert.match(result.headers["set-cookie"][0], /Secure/);
+  assert.match(result.headers["set-cookie"][0], /SameSite=None/);
   assert.throws(() => readConfig({}));
 });
