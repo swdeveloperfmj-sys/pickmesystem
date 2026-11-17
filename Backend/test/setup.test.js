@@ -75,6 +75,12 @@ beforeEach(async () => {
   failMail = false;
   app = createApp({ config, mailer });
 });
+test("root endpoint reports that the API is running", async () => {
+  await request(app)
+    .get("/")
+    .expect(200)
+    .expect({ message: "CTMS API is running." });
+});
 async function pending(data = details) {
   const response = await request(app)
     .post("/api/setup/super-admin")
