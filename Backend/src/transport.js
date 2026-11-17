@@ -132,7 +132,8 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     const department = user.department ? await Department.findById(user.department) : null;
     if (!department) fail(400, "Your account must have an assigned department before requesting transport.");
     notice(data.pickupAt);
-    const approvers = await assignedApprovers(user);
+    const autoApprove = canApprove(user);
+    const approvers = autoApprove ? [] : await assignedApprovers(user);
     if (data.service === "RIDE") {
       if (!data.passengers.length || !data.passengers.some((person) => person.name.toLowerCase() === user.fullName.toLowerCase())) fail(400, "Ride passenger details must include you.");
       if (data.passengerCount < 1) fail(400, "Ride requests require at least one passenger.");
@@ -144,16 +145,24 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
     const eligible = eligibleVehicles({ ...data, category: ["MANAGER", "ADMIN"].includes(user.role) ? "MANAGER" : "EXECUTIVE_OR_BELOW" });
     if (!eligible.includes(data.vehicle)) fail(400, `Annexure B permits: ${eligible.join(", ")} for this request.`);
     const { version, requesterDesignation, requesterContact, departmentId, ...details } = data;
-    const values = { ...details, pickupAt: new Date(data.pickupAt), requester: user._id, approver: null, approvers: approvers.map((approver) => approver._id),
-      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: user.designation || "", contact: requesterContact, departmentId: department.id, department: department.name, workLocation: user.workLocation || "" }, approverDetails: { fullName: approvers.map((approver) => approver.fullName).join(", "), designation: approvers.map((approver) => approver.designation).filter(Boolean).join(", ") },
-      status: "PENDING_APPROVAL", requestSharedAt: null, approvalSharedAt: null, bookingReference: "", bookingAmount: null, driverDetails: "", bookingRecordedBy: null };
+    const approvedAt = autoApprove ? new Date() : null;
+    const approverDetails = autoApprove
+      ? { fullName: user.fullName, designation: user.designation || "", approvedBy: user.fullName }
+      : { fullName: approvers.map((approver) => approver.fullName).join(", "), designation: approvers.map((approver) => approver.designation).filter(Boolean).join(", ") };
+    const values = { ...details, pickupAt: new Date(data.pickupAt), requester: user._id, approver: autoApprove ? user._id : null, approvers: approvers.map((approver) => approver._id),
+      requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: user.designation || "", contact: requesterContact, departmentId: department.id, department: department.name, workLocation: user.workLocation || "" }, approverDetails,
+      status: autoApprove ? "APPROVED" : "PENDING_APPROVAL", requestSharedAt: null, approvalSharedAt: approvedAt, bookingReference: "", bookingAmount: null, driverDetails: "", bookingRecordedBy: null };
+    const history = [
+      event(user, update ? "RESUBMITTED" : "SUBMITTED", update ? "" : "Request submitted."),
+      ...(autoApprove ? [event(user, "AUTO_APPROVED", "Automatically approved because the requester has approval access.")] : []),
+    ];
     let record;
     if (update) {
       if (version === undefined) fail(400, "A request version is required when editing. Refresh first.");
       record = await TransportRequest.findOneAndUpdate({ _id: id.parse(req.params.id), requester: user._id, version, status: { $in: ["PENDING_APPROVAL", "RETURNED", "REJECTED"] } },
-        { $set: values, $inc: { version: 1 }, $push: { history: event(user, "RESUBMITTED") } }, { returnDocument: "after" });
+        { $set: values, $inc: { version: 1 }, $push: { history: { $each: history } } }, { returnDocument: "after" });
       if (!record) fail(409, "This request cannot be edited now. Refresh its status.");
-    } else record = await TransportRequest.create({ ...values, history: [event(user, "SUBMITTED", "Request submitted.")] });
+    } else record = await TransportRequest.create({ ...values, history });
     res.status(update ? 200 : 201).json({ request: publicRequest(record) });
   }
   router.post("/requests", (req, res) => submit(req, res, false));

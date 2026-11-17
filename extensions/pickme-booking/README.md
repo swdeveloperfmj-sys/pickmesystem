@@ -6,10 +6,12 @@ Download **Download extension ZIP** from CTMS **Settings** (available to users w
 
 1. Open `chrome://extensions`.
 2. Turn on **Developer mode**.
-3. Choose **Load unpacked** and select the extracted folder containing manifest.json. Developers can select `C:\dev\pickmeReq\extensions\pickme-booking` directly.
+3. Choose **Load unpacked**, select the extracted extension folder, and click **Select Folder**. The folder picker only shows folders, so `manifest.json` will not appear there; do not select the ZIP file. On Windows, right-click the ZIP and choose **Extract All** first. Developers can select `C:\dev\pickmeReq\extensions\pickme-booking` directly.
 4. Refresh the CTMS tab at `http://127.0.0.1:5173` or `http://localhost:5173`.
 5. Sign in to PickMe Business in the same Chrome profile.
 6. In CTMS Booking Management, click **Book** on an approved Ride request.
+
+After loading, **CTMS PickMe Booking Helper** should appear in `chrome://extensions`. Pin it from Chrome's Extensions menu if you want its icon in the toolbar.
 
 The extension opens a separate PickMe tab for each request and attempts to enter phone, passenger name, pickup, destination and an exactly matching department. A helper panel shows all trip details and offers individual Fill/Copy controls. If login redirects away from the booking screen, return to `https://business.pickme.lk/booknow/rides` in that same tab.
 

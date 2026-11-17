@@ -146,6 +146,7 @@ export function createApp({ config, mailer, limits = true }) {
   const app = express();
   app.disable("x-powered-by");
   app.use(helmet(), express.json({ limit: "16kb" }), cookieParser());
+  app.get("/", (_req, res) => res.json({ message: "CTMS API is running." }));
   app.use("/api", (_req, res, next) => {
     res.set("Cache-Control", "no-store");
     next();
