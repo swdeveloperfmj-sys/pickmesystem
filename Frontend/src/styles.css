@@ -1042,6 +1042,20 @@ input:focus {
   align-items: center;
   gap: 16px;
 }
+.install-app-button {
+  width: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--soft-border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--gold-soft);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.install-app-button:hover { background: var(--gold); }
+.install-app-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.install-app-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .theme-toggle {
   display: inline-flex;
   align-items: center;

@@ -9,6 +9,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { api } from "./api";
+import PwaInstall from "./PwaInstall";
 import "./styles.css";
 import Departments from "./Departments";
 import Users from "./Users";
@@ -102,6 +103,7 @@ function AuthLayout({ children, step, login = false, portalLabel = "ADMINISTRATI
           {portalLabel}
           <div className="header-actions">
             <span>● Secure access</span>
+            <PwaInstall />
             <ThemeToggle />
           </div>
         </div>
@@ -666,6 +668,7 @@ function Dashboard() {
           </span>
           <div className="header-actions">
             <span className="badge connection-badge">● System connected</span>
+            <PwaInstall />
             <ThemeToggle />
           </div>
         </header>
@@ -834,3 +837,11 @@ createRoot(document.getElementById("root")).render(
     </ThemeProvider>
   </BrowserRouter>,
 );
+
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/service-worker.js").catch((error) => {
+      console.error("Could not register the app service worker.", error);
+    });
+  });
+}
