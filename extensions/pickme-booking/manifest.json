@@ -6,7 +6,7 @@
   "permissions": ["storage"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
-    { "matches": ["http://localhost/*", "http://127.0.0.1/*"], "js": ["bridge.js"] },
+    { "matches": ["http://localhost/*", "http://127.0.0.1/*", "https://rb0jihspcn0qybjtcojyjsbn.179.197.255.234.sslip.io/*"], "js": ["bridge.js"] },
     { "matches": ["https://business.pickme.lk/*"], "js": ["pickme.js"] }
   ]
 }

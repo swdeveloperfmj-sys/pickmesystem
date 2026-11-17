@@ -7,7 +7,7 @@ Download **Download extension ZIP** from CTMS **Settings** (available to users w
 1. Open `chrome://extensions`.
 2. Turn on **Developer mode**.
 3. Choose **Load unpacked**, select the extracted extension folder, and click **Select Folder**. The folder picker only shows folders, so `manifest.json` will not appear there; do not select the ZIP file. On Windows, right-click the ZIP and choose **Extract All** first. Developers can select `C:\dev\pickmeReq\extensions\pickme-booking` directly.
-4. Refresh the CTMS tab at `http://127.0.0.1:5173` or `http://localhost:5173`.
+4. Refresh the CTMS tab at `http://127.0.0.1:5173`, `http://localhost:5173`, or `https://rb0jihspcn0qybjtcojyjsbn.179.197.255.234.sslip.io`.
 5. Sign in to PickMe Business in the same Chrome profile.
 6. In CTMS Booking Management, click **Book** on an approved Ride request.
 
@@ -23,7 +23,7 @@ Select the correct address suggestions to resolve the map locations. Check the p
 - Live authenticated PickMe testing is still required. Selectors use visible labels/placeholders from the supplied screenshot, with common name/id fallbacks. PickMe may lock fields or change its markup. Entered address text does not mean a map location has been selected.
 - The extension never clicks BOOK NOW or updates the CTMS booking status.
 - If a value cannot be filled, use the panel's Copy controls. Retry filling after phone lookup unlocks the name.
-- Only local CTMS on port 5173 is allowed. For deployment, explicitly add the exact HTTPS origin to `background.js`, `bridge.js`, and the CTMS content-script matches in `manifest.json`. Do not use a wildcard for all websites.
+- Only the listed local CTMS origins and the exact deployed HTTPS origin are allowed. If the deployed domain changes, update `background.js`, `bridge.js`, and the CTMS content-script matches in `manifest.json`; do not use a wildcard for all websites.
 - Reload the extension and refresh CTMS/PickMe tabs after changing extension files.
 
 ## Data handling

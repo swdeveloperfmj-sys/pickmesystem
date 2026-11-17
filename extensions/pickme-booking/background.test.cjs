@@ -35,7 +35,7 @@ test('only approved rides from allowed CTMS origins can open a tab', async () =>
 });
 test('concurrent requests stay isolated, expire, and clear on close', async () => {
   const app = setup();
-  await Promise.all([app.send({ type: 'OPEN', payload }, 'http://localhost:5173'), app.send({ type: 'OPEN', payload: { ...payload, id: 'request2', name: 'Second Passenger' } }, 'http://127.0.0.1:5173')]);
+  await Promise.all([app.send({ type: 'OPEN', payload }, 'http://localhost:5173'), app.send({ type: 'OPEN', payload: { ...payload, id: 'request2', name: 'Second Passenger' } }, 'https://rb0jihspcn0qybjtcojyjsbn.179.197.255.234.sslip.io')]);
   assert.equal(app.tabs.length, 2);
   assert.ok(app.tabs.every(tab => tab.url === 'https://business.pickme.lk/booknow/rides'));
   const url = 'https://business.pickme.lk/booknow/rides';
