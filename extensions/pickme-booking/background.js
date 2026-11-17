@@ -1,4 +1,4 @@
-const origins = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
+const origins = new Set(["http://localhost:5173", "http://127.0.0.1:5173", "https://rb0jihspcn0qybjtcojyjsbn.179.197.255.234.sslip.io"]);
 const bookingUrl = "https://business.pickme.lk/booknow/rides";
 const ttl = 30 * 60 * 1000;
 function validate(payload) {
