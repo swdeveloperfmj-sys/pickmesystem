@@ -98,6 +98,8 @@ The browser test runs the real React app and API with an isolated database and a
 
 Build `Frontend` and serve its `dist` directory through IIS or your existing HTTPS web server. Configure SPA fallback to `index.html` for frontend routes, and proxy `/api/*` to the Express process without rewriting the `/api` prefix. Serve the UI and API from the same origin. Set `APP_ORIGIN` to that exact HTTPS origin and `NODE_ENV=production`; production cookies use `Secure`, `HttpOnly`, and `SameSite=Strict`. Do not use Vite's development server as the production web server. Run `npm start` in `Backend` under your existing Windows service manager. Keep the API port restricted to the reverse proxy, restrict MongoDB access, and retain the setup marker and audit collection with normal database backups.
 
+The frontend is installable as a Progressive Web App on HTTPS (or localhost during development). On Windows, open the site in Edge or Chrome and choose **Install app**; on Android, use Chrome's **Install app** or **Add to Home screen** option. On iPhone/iPad, open the site in Safari and choose **Share → Add to Home Screen**. IIS must serve `.webmanifest` files as `application/manifest+json`. The service worker caches the app shell and static assets for offline startup; authenticated API requests are never cached and still require a network connection.
+
 ## Created and modified files
 
 There were no existing source files. The implementation adds:
