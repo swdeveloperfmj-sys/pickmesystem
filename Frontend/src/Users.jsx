@@ -6,7 +6,7 @@ import { staffModules, defaultAccess } from "./access";
 import { matchingApprovers, updateApproverSelection } from "./approvers.js";
 
 const emptyForm = { fullName: "", username: "", designation: "", contact: "", password: "", role: "", status: "ACTIVE", sidebarAccess: defaultAccess("") };
-const emptyAssignments = { departmentIds: [], companyIds: [], approverIds: [] };
+const emptyAssignments = { departmentId: "", departmentIds: [], companyIds: [], approverIds: [] };
 
 export default function Users({ refreshKey, onChanged }) {
   const [section, setSection] = useState("users");
@@ -104,6 +104,9 @@ export default function Users({ refreshKey, onChanged }) {
         ? current[field].filter((item) => item !== id)
         : [...current[field], id],
       };
+      if (field === "departmentIds" && !next.departmentIds.includes(next.departmentId)) {
+        next.departmentId = next.departmentIds.length === 1 ? next.departmentIds[0] : "";
+      }
       next.approverIds = updateApproverSelection(users, current, next, editing);
       return next;
     });
@@ -116,7 +119,7 @@ export default function Users({ refreshKey, onChanged }) {
     const body = {
       ...form,
       approverIds: form.sidebarAccess.includes("APPROVALS") ? [] : form.approverIds,
-      departmentId: form.departmentIds[0] || null,
+      departmentId: form.departmentId || null,
     };
     if (editing && !body.password) delete body.password;
     try {
@@ -151,6 +154,7 @@ export default function Users({ refreshKey, onChanged }) {
       password: "",
       role: user.role,
       status: user.status,
+      departmentId: user.departmentId || user.departmentIds?.[0] || "",
       departmentIds: user.departmentIds || (user.departmentId ? [user.departmentId] : []),
       companyIds: user.companyIds || (user.companyId ? [user.companyId] : []),
       approverIds: user.approverIds ?? matchingApprovers(users, {
@@ -232,13 +236,21 @@ export default function Users({ refreshKey, onChanged }) {
             </div>
             <fieldset className="user-assignment" disabled={busy || loading}>
               <legend>Departments{assignmentsRequired ? " *" : ""}</legend>
-              <p className="muted">Select all departments this user belongs to. The first selected department is used as the primary department.</p>
+              <p className="muted">{assignmentsRequired ? "Select all departments this user can approve requests for." : "Select the departments this user belongs to."}</p>
               {departments.length ? <div className="assignment-options">
                 {departments.map((department) => <label className="assignment-option" key={department.id}>
                   <input type="checkbox" checked={form.departmentIds.includes(department.id)} onChange={() => toggleAssignment("departmentIds", department.id)} />
                   <span>{department.name}</span>
                 </label>)}
               </div> : <p className="muted">Create a department in Department Management first.</p>}
+              {form.departmentIds.length > 0 && <div className="select-field">
+                <label htmlFor="user-main-department">Main department</label>
+                <select id="user-main-department" name="departmentId" value={form.departmentId} onChange={change} required aria-describedby="main-department-help">
+                  <option value="">Select main department</option>
+                  {departments.filter((department) => form.departmentIds.includes(department.id)).map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+                </select>
+                <p className="muted" id="main-department-help">Shown in the user's profile and new transport requests. Approval access still applies to all selected departments.</p>
+              </div>}
             </fieldset>
             <fieldset className="user-assignment" disabled={busy || loading}>
               <legend>Companies{assignmentsRequired ? " *" : ""}</legend>

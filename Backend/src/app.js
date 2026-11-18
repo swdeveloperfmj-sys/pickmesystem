@@ -585,6 +585,12 @@ export function createApp({ config, mailer, limits = true }) {
         if (becomesApprover && (!departmentIds.length || !companyIds.length)) {
           throw new ApiError(400, "Approver users must have at least one department and company assigned.");
         }
+        if (requestedDepartmentId && !departmentIds.includes(requestedDepartmentId)) {
+          throw new ApiError(400, "Main department must be one of the selected departments.");
+        }
+        const mainDepartmentId = requestedDepartmentId
+          || (departmentIds.includes(String(currentUser?.department)) ? String(currentUser.department) : departmentIds[0])
+          || null;
         if (fields.role.startsWith("CUSTOM_")) {
           if (!(await Role.findByIdAndUpdate(fields.role.slice(7),
             { $inc: { assignmentVersion: 1 } }, { session }))) {
@@ -611,7 +617,7 @@ export function createApp({ config, mailer, limits = true }) {
         }
         const values = {
           ...fields,
-          department: departmentIds[0] || null,
+          department: mainDepartmentId,
           departments: departmentIds,
           company: null,
           location: null,

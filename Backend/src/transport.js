@@ -25,7 +25,7 @@ const requestInput = z.object({
   version: z.number().int().min(0).optional(),
 }).strict();
 const actionInput = z.object({
-  action: z.enum(["APPROVE", "REJECT", "RETURN", "BOOK", "COMPLETE", "CANCEL", "CONFIRM_CANCEL", "REQUEST_CHANGE", "CONFIRM_CHANGE", "REPORT_ISSUE"]),
+  action: z.enum(["APPROVE", "REJECT", "RETURN", "START_BOOKING", "BOOK", "COMPLETE_BOOKING", "COMPLETE", "CANCEL", "CONFIRM_CANCEL", "REQUEST_CHANGE", "CONFIRM_CHANGE", "REPORT_ISSUE"]),
   version: z.number().int().min(0), note: z.string().trim().max(1000).default(""),
   approvalShared: z.boolean().optional(), externalActionConfirmed: z.boolean().optional(),
   bookingReference: z.string().trim().max(100).optional(), driverDetails: z.string().trim().max(500).optional(),
@@ -103,7 +103,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
   });
   router.get("/bookings/pending-count", async (req, res) => {
     if (!canBook(req.user)) fail(403, "Booking access is required.");
-    const count = await TransportRequest.countDocuments({ status: "APPROVED" });
+    const count = await TransportRequest.countDocuments({ status: "APPROVED", bookingStartedAt: null });
     res.set("Cache-Control", "no-store").json({ count });
   });
   async function assignedApprovers(user) {
@@ -153,7 +153,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
       : { fullName: approvers.map((approver) => approver.fullName).join(", "), designation: approvers.map((approver) => approver.designation).filter(Boolean).join(", ") };
     const values = { ...details, pickupAt: new Date(data.pickupAt), requester: user._id, approver: autoApprove ? user._id : null, approvers: approvers.map((approver) => approver._id),
       requesterDetails: { id: user.id, fullName: user.fullName, username: user.username, designation: user.designation || "", contact: requesterContact, departmentId: department.id, department: department.name, workLocation: user.workLocation || "" }, approverDetails,
-      status: autoApprove ? "APPROVED" : "PENDING_APPROVAL", requestSharedAt: null, approvalSharedAt: approvedAt, bookingReference: "", bookingAmount: null, driverDetails: "", bookingRecordedBy: null };
+      status: autoApprove ? "APPROVED" : "PENDING_APPROVAL", requestSharedAt: null, approvalSharedAt: approvedAt, bookingReference: "", bookingAmount: null, driverDetails: "", bookingRecordedBy: null, bookingStartedAt: null };
     const history = [
       event(user, update ? "RESUBMITTED" : "SUBMITTED", update ? "" : "Request submitted."),
       ...(autoApprove ? [event(user, "AUTO_APPROVED", "Automatically approved because the requester has approval access.")] : []),
@@ -196,11 +196,22 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
       case "RETURN":
         if (!(booking || assigned) || !["PENDING_APPROVAL", "APPROVED"].includes(status)) fail(403, "This request cannot be returned by your account.");
         reason(); nextStatus = "RETURNED"; break;
+      case "START_BOOKING":
+        if (!booking || status !== "APPROVED" || !record.approvalSharedAt) fail(403, "Only booking staff can start an approved booking.");
+        if (record.bookingStartedAt) fail(409, "Booking has already started. Refresh the request.");
+        if (record.pickupAt <= new Date()) fail(400, "Pickup time has passed. Return this request for rescheduling.");
+        changes.bookingStartedAt = new Date(); nextStatus = status; break;
       case "BOOK":
         if (!booking || status !== "APPROVED" || !record.approvalSharedAt) fail(403, "Only the Administrative Assistant can record a booking after approval.");
         if (record.pickupAt <= new Date()) fail(400, "Pickup time has passed. Return this request for rescheduling.");
         if (!data.externalActionConfirmed || data.bookingAmount == null) fail(400, "Enter the booking amount and confirm the actual booking is complete.");
         changes.bookingReference = data.bookingReference || ""; changes.bookingAmount = data.bookingAmount; changes.driverDetails = ""; changes.bookingRecordedBy = user._id; nextStatus = "BOOKED"; break;
+      case "COMPLETE_BOOKING":
+        if (!booking || !record.approvalSharedAt || !(status === "BOOKED" || (status === "APPROVED" && record.bookingStartedAt))) fail(403, "Only booking staff can complete an active booking.");
+        if (!data.externalActionConfirmed || data.bookingAmount == null) fail(400, "Enter the booking amount and confirm the booking is complete.");
+        changes.bookingAmount = data.bookingAmount;
+        changes.bookingRecordedBy = user._id;
+        nextStatus = "COMPLETED"; break;
       case "COMPLETE":
         if (!own || status !== "BOOKED") fail(403, "Only the requester can confirm a booked trip is complete.");
         if (!data.routeVerified || !data.completionMessageChecked) fail(400, "Verify pickup, route and destination, and check the completion message first.");
@@ -222,7 +233,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
         reason(); nextStatus = status; break;
     }
     const updated = await TransportRequest.findOneAndUpdate({ _id: record._id, version: data.version, status },
-      { $set: { ...changes, status: nextStatus }, $inc: { version: 1 }, $push: { history: event(user, data.action, data.action === "BOOK" ? `Booking amount: LKR ${data.bookingAmount.toFixed(2)}.${data.bookingReference ? ` PickMe reference: ${data.bookingReference}.` : ""}` : data.note) } }, { returnDocument: "after" });
+      { $set: { ...changes, status: nextStatus }, $inc: { version: 1 }, $push: { history: event(user, data.action, ["BOOK", "COMPLETE_BOOKING"].includes(data.action) ? `Booking amount: LKR ${data.bookingAmount.toFixed(2)}.${data.bookingReference ? ` PickMe reference: ${data.bookingReference}.` : ""}` : data.note) } }, { returnDocument: "after" });
     if (!updated) fail(409, "This request changed. Refresh before trying again.");
     res.json({ request: publicRequest(updated) });
   });
