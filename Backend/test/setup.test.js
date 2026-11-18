@@ -458,7 +458,25 @@ test("approver users can select multiple departments and companies without a loc
   assert.deepEqual(user.companies.map((company) => company.name).sort(), ["Acme", "Northwind"]);
   assert.deepEqual(user.locationIds, []);
   assert.deepEqual(user.locations, []);
+  const userUrl = `/api/super-admin/users/${user.id}`;
+  const mainChanged = await request(app).put(userUrl).set("Cookie", cookie)
+    .send({ ...base, password: undefined, departmentId: departments[1].id }).expect(200);
+  assert.equal(mainChanged.body.user.departmentId, departments[1].id);
+  assert.equal(mainChanged.body.user.department.name, departments[1].name);
+  assert.deepEqual(mainChanged.body.user.departmentIds, base.departmentIds);
+  const approverSession = request.agent(app);
+  await approverSession.post("/api/transport/auth/login").send({ username: base.username, password: base.password }).expect(200);
+  const profile = (await approverSession.get("/api/transport/me").expect(200)).body.user;
+  assert.equal(profile.departmentId, departments[1].id);
+  assert.equal(profile.department, departments[1].name);
+  const preserved = await request(app).put(userUrl).set("Cookie", cookie)
+    .send({ ...base, password: undefined, departmentId: null }).expect(200);
+  assert.equal(preserved.body.user.departmentId, departments[1].id);
+  await request(app).put(userUrl).set("Cookie", cookie)
+    .send({ ...base, password: undefined, departmentId: departments[1].id, departmentIds: [departments[0].id] }).expect(400);
+  assert.equal(String((await User.findById(user.id)).department), departments[1].id);
   const listed = await request(app).get("/api/super-admin/users").set("Cookie", cookie).expect(200);
+  assert.equal(listed.body.users[0].departmentId, departments[1].id);
   assert.deepEqual(listed.body.users[0].departmentIds.sort(), departments.map((department) => department.id).sort());
   assert.deepEqual(listed.body.users[0].companyIds.sort(), companies.map((company) => company.id).sort());
   assert.deepEqual(listed.body.users[0].locationIds, []);
@@ -717,10 +735,31 @@ test("requesters with approval access are automatically approved and appear in t
   const queued = await booking.get("/api/transport/requests").expect(200);
   assert.equal(queued.body.requests[0].id, record.id);
   assert.equal((await booking.get("/api/transport/bookings/pending-count").expect(200)).body.count, 1);
+  const actionUrl = `/api/transport/requests/${record.id}/action`;
+  await requester.post(actionUrl).send({ action: "START_BOOKING", version: 0 }).expect(403);
+  const started = (await booking.post(actionUrl).send({ action: "START_BOOKING", version: 0 }).expect(200)).body.request;
+  assert.ok(started.bookingStartedAt);
+  assert.equal(started.status, "APPROVED");
+  assert.equal(started.bookingAmount, null);
+  assert.equal((await booking.get("/api/transport/requests").expect(200)).body.requests[0].bookingStartedAt, started.bookingStartedAt);
+  assert.equal((await booking.get("/api/transport/bookings/pending-count").expect(200)).body.count, 0);
+  await booking.post(actionUrl).send({ action: "START_BOOKING", version: 1 }).expect(409);
+  await booking.post(actionUrl).send({ action: "BOOK", version: 1 }).expect(400);
+  await requester.post(actionUrl).send({ action: "COMPLETE_BOOKING", version: 1, bookingAmount: 1200, externalActionConfirmed: true }).expect(403);
+  await booking.post(actionUrl).send({ action: "COMPLETE_BOOKING", version: 1, bookingAmount: 1200 }).expect(400);
+  await booking.post(actionUrl).send({ action: "COMPLETE_BOOKING", version: 1, externalActionConfirmed: true }).expect(400);
+  await booking.post(actionUrl).send({ action: "COMPLETE_BOOKING", version: 0, bookingAmount: 1200, externalActionConfirmed: true }).expect(409);
   const booked = await booking.post(`/api/transport/requests/${record.id}/action`).send({
-    action: "BOOK", version: 0, bookingAmount: 1200, externalActionConfirmed: true,
+    action: "COMPLETE_BOOKING", version: 1, bookingAmount: 1200, externalActionConfirmed: true,
   }).expect(200);
-  assert.equal(booked.body.request.status, "BOOKED");
+  assert.equal(booked.body.request.status, "COMPLETED");
+  assert.equal(booked.body.request.bookingAmount, 1200);
+  assert.equal(booked.body.request.history.at(-1).action, "COMPLETE_BOOKING");
+  assert.match(booked.body.request.history.at(-1).note, /1200\.00/);
+  const persisted = await TransportRequest.findById(record.id);
+  assert.equal(persisted.status, "COMPLETED");
+  assert.equal(persisted.bookingAmount, 1200);
+  await booking.post(actionUrl).send({ action: "COMPLETE_BOOKING", version: 2, bookingAmount: 1200, externalActionConfirmed: true }).expect(403);
 });
 
 test("Super Admin sidebar grants persist, control staff actions, and revoke access in an existing session", async () => {

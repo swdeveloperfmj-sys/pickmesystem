@@ -15,13 +15,13 @@ After loading, **CTMS PickMe Booking Helper** should appear in `chrome://extensi
 
 The extension opens a separate PickMe tab for each request and attempts to enter phone, passenger name, pickup, destination and an exactly matching department. A helper panel shows all trip details and offers individual Fill/Copy controls. If login redirects away from the booking screen, return to `https://business.pickme.lk/booknow/rides` in that same tab.
 
-Select the correct address suggestions to resolve the map locations. Check the passenger name after phone lookup, select the vehicle and add any stopover. Set the requested pickup time using PickMe's scheduling control; the extension does not schedule or select a vehicle automatically. Review everything and click **BOOK NOW** yourself. Return to CTMS to enter the amount/reference and confirm the booking.
+Select the correct address suggestions to resolve the map locations. Check the passenger name after phone lookup, select the vehicle and add any stopover. Set the requested pickup time using PickMe's scheduling control; the extension does not schedule or select a vehicle automatically. Review everything and click **BOOK NOW** yourself. CTMS moves the request to Active bookings when Book opens the helper. Return to Active bookings, choose Complete booking, enter the amount, tick the confirmation checkbox and click Complete. The request then moves to Completed / Cancelled. Open PickMe lets you reopen the helper if needed.
 
 ## Current limits
 
 - Ride only. Flash remains manual.
 - Live authenticated PickMe testing is still required. Selectors use visible labels/placeholders from the supplied screenshot, with common name/id fallbacks. PickMe may lock fields or change its markup. Entered address text does not mean a map location has been selected.
-- The extension never clicks BOOK NOW or updates the CTMS booking status.
+- The extension never clicks BOOK NOW. CTMS records that booking has started separately from the confirmed booking; the amount and confirmation are still required to move it to Completed / Cancelled.
 - If a value cannot be filled, use the panel's Copy controls. Retry filling after phone lookup unlocks the name.
 - Only the listed local CTMS origins and the exact deployed HTTPS origin are allowed. If the deployed domain changes, update `background.js`, `bridge.js`, and the CTMS content-script matches in `manifest.json`; do not use a wildcard for all websites.
 - Reload the extension and refresh CTMS/PickMe tabs after changing extension files.

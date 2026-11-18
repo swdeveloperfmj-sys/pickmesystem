@@ -818,14 +818,7 @@ function App() {
       <Route path="/super-admin/dashboard" element={<Dashboard />} />
       <Route
         path="*"
-        element={
-          <Navigate
-            to={
-              status.setupRequired ? "/super-admin/setup" : "/super-admin/login"
-            }
-            replace
-          />
-        }
+        element={<Navigate to="/login" replace />}
       />
     </Routes>
   );
