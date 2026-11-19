@@ -1,4 +1,5 @@
 import express from "express";
+import mongoose from "mongoose";
 import { rateLimit } from "express-rate-limit";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -232,9 +233,30 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
         if (!own || !["BOOKED", "CHANGE_REQUESTED", "CANCELLATION_REQUESTED"].includes(status)) fail(403, "Only the requester can report an issue with an active booking.");
         reason(); nextStatus = status; break;
     }
-    const updated = await TransportRequest.findOneAndUpdate({ _id: record._id, version: data.version, status },
-      { $set: { ...changes, status: nextStatus }, $inc: { version: 1 }, $push: { history: event(user, data.action, ["BOOK", "COMPLETE_BOOKING"].includes(data.action) ? `Booking amount: LKR ${data.bookingAmount.toFixed(2)}.${data.bookingReference ? ` PickMe reference: ${data.bookingReference}.` : ""}` : data.note) } }, { returnDocument: "after" });
-    if (!updated) fail(409, "This request changed. Refresh before trying again.");
+    const updated = await mongoose.connection.transaction(async (session) => {
+      // Commit the request and debit together; concurrent bookings cannot overspend.
+      let charged = record.budgetChargedCents || 0;
+      if (["BOOK", "COMPLETE_BOOKING"].includes(data.action)) charged = Math.round(data.bookingAmount * 100);
+      if (["CONFIRM_CANCEL", "CONFIRM_CHANGE"].includes(data.action)) charged = 0;
+      const delta = charged - (record.budgetChargedCents || 0);
+      if (delta !== 0) {
+        const department = await Department.findOneAndUpdate({
+          _id: record.requesterDetails.departmentId,
+          ...(delta > 0 ? { $expr: { $lte: [{ $add: [{ $ifNull: ["$spentCents", 0] }, delta] }, { $round: [{ $multiply: [{ $ifNull: ["$budget", 0] }, 100] }, 0] }] } } : {}),
+        }, { $inc: { spentCents: delta } }, { session, returnDocument: "after" });
+        if (!department) {
+          const current = await Department.findById(record.requesterDetails.departmentId).session(session);
+          if (!current) fail(400, "The request's department is unavailable. Contact your administrator before recording this booking.");
+          const available = Math.round((current.budget || 0) * 100) - (current.spentCents || 0);
+          fail(400, `Insufficient department balance. Available: LKR ${(available / 100).toFixed(2)}. Additional amount required: LKR ${(delta / 100).toFixed(2)}. Please ask your administrator to top up ${current.name} by at least LKR ${((delta - available) / 100).toFixed(2)} before saving this booking.`);
+        }
+      }
+      changes.budgetChargedCents = charged;
+      const result = await TransportRequest.findOneAndUpdate({ _id: record._id, version: data.version, status },
+      { $set: { ...changes, status: nextStatus }, $inc: { version: 1 }, $push: { history: event(user, data.action, ["BOOK", "COMPLETE_BOOKING"].includes(data.action) ? `Booking amount: LKR ${data.bookingAmount.toFixed(2)}.${data.bookingReference ? ` PickMe reference: ${data.bookingReference}.` : ""}` : data.note) } }, { returnDocument: "after", session });
+      if (!result) fail(409, "This request changed. Refresh before trying again.");
+      return result;
+    });
     res.json({ request: publicRequest(updated) });
   });
   app.use("/api/transport", requireStaff, router);

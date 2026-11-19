@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import Companies from "./Companies";
 
-const emptyForm = { name: "", description: "" };
+const emptyForm = { name: "", description: "", budget: 0 };
+const money = (value) => Number(value || 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function Departments({ refreshKey, onChanged }) {
   const [section, setSection] = useState("departments");
@@ -86,7 +87,7 @@ export default function Departments({ refreshKey, onChanged }) {
 
   function edit(department) {
     setEditing(department.id);
-    setForm({ name: department.name, description: department.description });
+    setForm({ name: department.name, description: department.description, budget: department.budget || 0 });
     setDeleting(null);
     setError("");
     setMessage("");
@@ -109,7 +110,7 @@ export default function Departments({ refreshKey, onChanged }) {
       <div hidden={section !== "departments"}>
         <dialog ref={editor} className="user-editor-dialog department-editor" aria-labelledby="department-editor-title" onCancel={(event) => { if (busy) event.preventDefault(); else reset(); }}>
           <header className="user-dialog-heading"><h2 id="department-editor-title">{editing ? "Edit department" : "Create department"}</h2><button type="button" className="user-dialog-close" aria-label="Close department form" disabled={busy} onClick={closeEditor}>&times;</button></header>
-          <p className="muted">Add a department name and an optional description.</p>
+          <p className="muted">Set the total department allocation. Increase it to top up the available balance.</p>
           {dialogError && <div className="error" role="alert">{dialogError}</div>}
           <form onSubmit={save}>
             <label htmlFor="department-name">Department name
@@ -121,6 +122,9 @@ export default function Departments({ refreshKey, onChanged }) {
               <textarea id="department-description" maxLength={500} rows={4}
                 placeholder="What does this department do?" value={form.description} disabled={busy || loading}
                 onChange={(event) => setForm({ ...form, description: event.target.value })} />
+            </label>
+            <label htmlFor="department-budget">Allocated amount (LKR)
+              <input id="department-budget" type="number" min="0" max="1000000000000" step="0.01" required value={form.budget} disabled={busy || loading} onChange={(event) => setForm({ ...form, budget: event.target.value === "" ? "" : Number(event.target.value) })} />
             </label>
             <div className="department-actions">
               <button className="primary" disabled={busy || loading} type="submit">
@@ -142,7 +146,8 @@ export default function Departments({ refreshKey, onChanged }) {
             : filtered.map((department) => (
               <article className="department-item department-row" key={department.id} aria-label={department.name}>
                 <div><h3>{department.name}</h3>
-                {department.description && <p className="muted department-description">{department.description}</p>}</div>
+                {department.description && <p className="muted department-description">{department.description}</p>}
+                <p className="muted">Allocated: LKR {money(department.budget)} · Spent: LKR {money(department.spent)} · Available: LKR {money(department.balance)}</p></div>
                 {deleting === department.id ? (
                   <div className="delete-confirmation department-row-confirmation">
                     <p>Delete “{department.name}”? This cannot be undone.</p>

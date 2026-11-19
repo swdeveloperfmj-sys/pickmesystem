@@ -441,7 +441,7 @@ test(
       await page.waitForURL("**/super-admin/login");
       await page.goto(`${config.APP_ORIGIN}/super-admin/dashboard`);
       await page.waitForURL("**/super-admin/login");
-      const transportDept = await Department.create({ name: "Transport Test", nameKey: "transport test" });
+      const transportDept = await Department.create({ name: "Transport Test", nameKey: "transport test", budget: 10000 });
       const passwordHash = await bcrypt.hash("Staff123", 12);
       const common = { passwordHash, department: transportDept._id, contact: "0771234567" };
       const transportCompany = await Company.create({ name: "Transport Co", nameKey: "transport co e2e" });
