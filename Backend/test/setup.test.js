@@ -21,6 +21,35 @@ import {
 import { readConfig } from "../src/config.js";
 
 let mongo, app, sent, failMail;
+test("department booking balance is atomic, requires top-up and charges only the difference", async () => {
+  const department = await Department.create({ name: "Budget Team", nameKey: "budget team", budget: 100 });
+  const user = await User.create({ fullName: "Budget Booker", username: "budget.booker", passwordHash: "unused", role: "OPERATOR", sidebarAccess: ["BOOKINGS"] });
+  const token = jwt.sign({ role: user.role }, config.JWT_SECRET, { subject: user.id, issuer: "ctms", audience: "ctms-staff" });
+  const create = () => TransportRequest.create({ requester: user._id, requesterDetails: { departmentId: department.id }, approverDetails: {}, service: "RIDE", pickupAt: new Date(Date.now() + 3600000), approvalSharedAt: new Date(), status: "APPROVED" });
+  const act = (record, action, version, bookingAmount) => request(app).post(`/api/transport/requests/${record.id}/action`).set("Cookie", `ctms_staff=${token}`).send({ action, version, bookingAmount, externalActionConfirmed: true });
+  const records = await Promise.all([create(), create()]);
+  const results = await Promise.all(records.map((record) => act(record, "BOOK", 0, 60)));
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 400]);
+  assert.match(results.find((r) => r.status === 400).body.message, /top up.*20.00/);
+  assert.equal((await Department.findById(department.id)).spentCents, 6000);
+  const booked = records[results.findIndex((r) => r.status === 200)];
+  await act(booked, "COMPLETE_BOOKING", 0, 100).expect(409);
+  assert.equal((await Department.findById(department.id)).spentCents, 6000);
+  await act(booked, "COMPLETE_BOOKING", 1, 100).expect(200);
+  assert.equal((await Department.findById(department.id)).spentCents, 10000);
+  const pending = records[results.findIndex((r) => r.status === 400)];
+  await act(pending, "BOOK", 0, 0.01).expect(400);
+  const verified = await complete();
+  const cookie = verified.headers["set-cookie"][0].split(";")[0];
+  const endpoint = `/api/super-admin/departments/${department.id}`;
+  await request(app).put(endpoint).set("Cookie", cookie).send({ name: department.name, budget: 99 }).expect(400);
+  await request(app).put(endpoint).set("Cookie", cookie).send({ name: department.name, budget: 100.01 }).expect(200);
+  await act(pending, "BOOK", 0, 0.01).expect(200);
+  assert.equal((await Department.findById(department.id)).spentCents, 10001);
+  await TransportRequest.updateOne({ _id: pending._id }, { $set: { status: "CANCELLATION_REQUESTED" } });
+  await request(app).post(`/api/transport/requests/${pending.id}/action`).set("Cookie", `ctms_staff=${token}`).send({ action: "CONFIRM_CANCEL", version: 1, externalActionConfirmed: true, note: "Cancelled in PickMe" }).expect(200);
+  assert.equal((await Department.findById(department.id)).spentCents, 10000);
+});
 const config = {
   JWT_SECRET: "test-only-secret-with-at-least-32-characters",
   JWT_EXPIRES_IN: "8h",
@@ -608,7 +637,7 @@ test("custom roles are unique, protected, persistent and assignable without Supe
 test("SOP workflow collects request details without transport profiles and enforces self-service, Annexure B/C, approval deadlines, booking ownership and completion", async () => {
   const verified = await complete();
   const adminCookie = verified.headers["set-cookie"][0].split(";")[0];
-  const department = await Department.create({ name: "Production", nameKey: "production" });
+  const department = await Department.create({ name: "Production", nameKey: "production", budget: 10000 });
   const company = await Company.create({ name: "FMJ", nameKey: "fmj" });
   const password = "Staff123";
   const passwordHash = await bcrypt.hash(password, 12);
@@ -700,7 +729,7 @@ test("SOP workflow collects request details without transport profiles and enfor
 });
 
 test("requesters with approval access are automatically approved and appear in the booking queue", async () => {
-  const department = await Department.create({ name: "Transport", nameKey: "transport" });
+  const department = await Department.create({ name: "Transport", nameKey: "transport", budget: 10000 });
   const company = await Company.create({ name: "Transport Co", nameKey: "transport co" });
   const password = "Staff123";
   const passwordHash = await bcrypt.hash(password, 12);
@@ -766,7 +795,7 @@ test("Super Admin sidebar grants persist, control staff actions, and revoke acce
   const verified = await complete();
   const cookie = verified.headers["set-cookie"][0].split(";")[0];
   const base = "/api/super-admin/users";
-  const team = await Department.create({ name: "Transport", nameKey: "transport" });
+  const team = await Department.create({ name: "Transport", nameKey: "transport", budget: 10000 });
   const company = await Company.create({ name: "Transport Co", nameKey: "transport co" });
   const staffRole = await Role.create({ name: "Transport Staff", nameKey: "transport staff" });
   const account = (username, sidebarAccess) => ({ fullName: username, username, designation: "Executive", contact: "0771234567", password: "Staff123", role: `CUSTOM_${staffRole.id}`, status: "ACTIVE", departmentId: null, sidebarAccess });
@@ -822,7 +851,7 @@ test("Super Admin sidebar grants persist, control staff actions, and revoke acce
 });
 
 test("SOP changes, returns and cancellations require responsible staff and reject stale versions", async () => {
-  const department = await Department.create({ name: "Accounts", nameKey: "accounts" });
+  const department = await Department.create({ name: "Accounts", nameKey: "accounts", budget: 10000 });
   const company = await Company.create({ name: "Accounts Co", nameKey: "accounts co" });
   const passwordHash = await bcrypt.hash("Staff123", 12);
   const common = { passwordHash, contact: "0771234567", department: department._id, departments: [department._id], company: company._id, companies: [company._id], locationType: "HEAD_OFFICE", workLocation: "Head Office", sopAcknowledgedAt: new Date() };

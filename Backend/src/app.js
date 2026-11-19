@@ -66,6 +66,7 @@ const login = z
   })
   .strict();
 const departmentInput = z.object({
+  budget: z.number().finite().min(0).max(1000000000000).refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 0.0001, "Use at most two decimal places").optional(),
   name: z.string().trim().min(2).max(100).regex(/^[^<>\p{Cc}]+$/u)
     .transform((value) => value.replace(/\s+/g, " ")),
   description: z.string().trim().max(500).default(""),
@@ -119,6 +120,9 @@ const managedUser = (user) => ({
 });
 const publicDepartment = (department) => ({
   id: department.id,
+  budget: department.budget || 0,
+  spent: (department.spentCents || 0) / 100,
+  balance: (Math.round((department.budget || 0) * 100) - (department.spentCents || 0)) / 100,
   name: department.name,
   description: department.description,
   createdAt: department.createdAt,
@@ -769,13 +773,16 @@ export function createApp({ config, mailer, limits = true }) {
     let department;
     try {
       department = update
-        ? await Department.findByIdAndUpdate(id, { $set: values }, { returnDocument: "after", runValidators: true })
+        ? await Department.findOneAndUpdate({ _id: id, ...(data.budget !== undefined ? { $expr: { $lte: [{ $ifNull: ["$spentCents", 0] }, Math.round(data.budget * 100)] } } : {}) }, { $set: values }, { returnDocument: "after", runValidators: true })
         : await Department.create(values);
     } catch (error) {
       if (error.code === 11000) throw new ApiError(409, "A department with this name already exists.");
       throw error;
     }
-    if (!department) throw new ApiError(404, "Department not found.");
+    if (!department) {
+      if (update && await Department.exists({ _id: id })) throw new ApiError(400, "Allocation cannot be lower than the amount already spent. Increase the allocation to top up this department.");
+      throw new ApiError(404, "Department not found.");
+    }
     res.status(update ? 200 : 201).json({ department: publicDepartment(department) });
   }
   app.post("/api/super-admin/departments", (req, res) => saveDepartment(req, res, false));
