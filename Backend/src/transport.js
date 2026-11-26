@@ -8,6 +8,7 @@ import { z } from "zod";
 import { User, Department, TransportRequest } from "./models.js";
 import { sopConfig, transportPermissions, canRequest, canApprove, canBook, eligibleVehicles } from "./sop.js";
 import { sidebarAccess, hasAccess, assignedApproverAllowed } from "./access.js";
+import { queueTransportSms } from "./sms.js";
 
 const fail = (status, message) => { const error = new Error(message); error.status = status; throw error; };
 const id = z.string().regex(/^[a-f\d]{24}$/i, "Invalid record ID");
@@ -159,13 +160,17 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
       event(user, update ? "RESUBMITTED" : "SUBMITTED", update ? "" : "Request submitted."),
       ...(autoApprove ? [event(user, "AUTO_APPROVED", "Automatically approved because the requester has approval access.")] : []),
     ];
-    let record;
-    if (update) {
-      if (version === undefined) fail(400, "A request version is required when editing. Refresh first.");
-      record = await TransportRequest.findOneAndUpdate({ _id: id.parse(req.params.id), requester: user._id, version, status: { $in: ["PENDING_APPROVAL", "RETURNED", "REJECTED"] } },
-        { $set: values, $inc: { version: 1 }, $push: { history: { $each: history } } }, { returnDocument: "after" });
-      if (!record) fail(409, "This request cannot be edited now. Refresh its status.");
-    } else record = await TransportRequest.create({ ...values, history });
+    const record = await mongoose.connection.transaction(async (session) => {
+      let saved;
+      if (update) {
+        if (version === undefined) fail(400, "A request version is required when editing. Refresh first.");
+        saved = await TransportRequest.findOneAndUpdate({ _id: id.parse(req.params.id), requester: user._id, version, status: { $in: ["PENDING_APPROVAL", "RETURNED", "REJECTED"] } },
+          { $set: values, $inc: { version: 1 }, $push: { history: { $each: history } } }, { returnDocument: "after", session });
+        if (!saved) fail(409, "This request cannot be edited now. Refresh its status.");
+      } else [saved] = await TransportRequest.create([{ ...values, history }], { session });
+      await queueTransportSms(saved, update ? "RESUBMITTED" : "SUBMITTED", config, session);
+      return saved;
+    });
     res.status(update ? 200 : 201).json({ request: publicRequest(record) });
   }
   router.post("/requests", (req, res) => submit(req, res, false));
@@ -255,6 +260,7 @@ export function registerTransport(app, { config, requireSuperAdmin }) {
       const result = await TransportRequest.findOneAndUpdate({ _id: record._id, version: data.version, status },
       { $set: { ...changes, status: nextStatus }, $inc: { version: 1 }, $push: { history: event(user, data.action, ["BOOK", "COMPLETE_BOOKING"].includes(data.action) ? `Booking amount: LKR ${data.bookingAmount.toFixed(2)}.${data.bookingReference ? ` PickMe reference: ${data.bookingReference}.` : ""}` : data.note) } }, { returnDocument: "after", session });
       if (!result) fail(409, "This request changed. Refresh before trying again.");
+      await queueTransportSms(result, data.action, config, session);
       return result;
     });
     res.json({ request: publicRequest(updated) });

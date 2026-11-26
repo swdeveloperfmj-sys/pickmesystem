@@ -44,6 +44,10 @@ Configure `Backend/.env`:
 
 The SMTP connection is checked at startup. Port 587 requires STARTTLS; certificate verification remains enabled. Configure an organization CA through Node's normal trust mechanism (`NODE_EXTRA_CA_CERTS`) if your internal relay uses a private CA. A send failure returns a generic error without exposing SMTP details or creating an account.
 
+## Transport SMS notifications
+
+Set `TEXTWARE_SMS_ENABLED=true` in `Backend/.env`, then configure `TEXTWARE_SMS_URL`, `TEXTWARE_SMS_USERNAME`, `TEXTWARE_SMS_PASSWORD`, and `TEXTWARE_SMS_SENDER_ID` from your TextWare account. Keep the credentials in the ignored `.env` file or your hosting provider's secret settings; do not commit them. The backend sends short status messages to active assigned approvers when a request is submitted, to the requester and relevant booking staff when it is approved, and to involved users when its status changes. Sri Lankan mobile numbers entered as `07XXXXXXXX` or `947XXXXXXXX` are normalized for the gateway. Notifications are queued with the workflow update, and gateway errors do not undo a request or approval.
+
 ## First Super Admin setup
 
 1. Enter full name, a unique username (3–40 letters, digits, dots, underscores, or hyphens), email, password, and confirmation. Passwords must contain at least 12 characters and at most 72 UTF-8 bytes to avoid bcrypt truncation.
