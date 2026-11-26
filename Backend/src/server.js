@@ -4,6 +4,7 @@ import { readConfig } from "./config.js";
 import { initializeDatabase, SetupState } from "./models.js";
 import { createMailer } from "./mail.js";
 import { createApp } from "./app.js";
+import { startSmsWorker } from "./sms.js";
 
 try {
   const config = readConfig();
@@ -21,11 +22,13 @@ try {
       ? "Super Admin setup is closed."
       : "Super Admin initial setup is required.",
   );
+  const stopSmsWorker = startSmsWorker(config);
   const server = createApp({ config, mailer }).listen(config.PORT, () =>
     console.log(`CTMS API listening on port ${config.PORT}`),
   );
   const shutdown = () =>
     server.close(async () => {
+      await stopSmsWorker();
       await mongoose.disconnect();
       process.exit(0);
     });

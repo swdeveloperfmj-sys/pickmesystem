@@ -16,6 +16,11 @@ export function readConfig(env = process.env) {
         .transform((v) => v === "true"),
       SMTP_USER: z.string().optional(),
       SMTP_PASS: z.string().optional(),
+      TEXTWARE_SMS_ENABLED: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
+      TEXTWARE_SMS_URL: z.url().default("https://msg.text-ware.com/send_sms.php").refine((value) => new URL(value).protocol === "https:", "Textware SMS requires HTTPS"),
+      TEXTWARE_SMS_USERNAME: z.string().trim().default(""),
+      TEXTWARE_SMS_PASSWORD: z.string().default(""),
+      TEXTWARE_SMS_SENDER_ID: z.string().trim().default(""),
       SMTP_FROM_NAME: z.string().default("Company Transport Management System"),
       SMTP_FROM_EMAIL: z.email(),
       OTP_EXPIRES_MINUTES: z.coerce.number().int().min(1).max(5).default(5),
@@ -43,5 +48,9 @@ export function readConfig(env = process.env) {
         message: "Production requires an HTTPS origin",
       },
     )
+    .refine((value) => !value.TEXTWARE_SMS_ENABLED ||
+      Boolean(value.TEXTWARE_SMS_USERNAME && value.TEXTWARE_SMS_PASSWORD && value.TEXTWARE_SMS_SENDER_ID), {
+      path: ["TEXTWARE_SMS_ENABLED"], message: "Enabled Textware SMS requires username, password and sender ID",
+    })
     .parse(env);
 }

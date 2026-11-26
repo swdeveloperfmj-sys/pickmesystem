@@ -81,6 +81,20 @@ export const TransportRequest = mongoose.model("TransportRequest", new Schema({
   version: { type: Number, default: 0 },
   history: [{ _id: false, action: String, actor: Schema.Types.ObjectId, actorName: String, at: Date, note: String }],
 }, { timestamps: true }));
+export const SmsNotification = mongoose.model("SmsNotification", new Schema({
+  request: { type: Schema.Types.ObjectId, ref: "TransportRequest", required: true },
+  version: { type: Number, required: true },
+  recipient: { type: Schema.Types.ObjectId, ref: "User", required: true },
+  audience: { type: String, enum: ["requester", "approver", "booking"], required: true },
+  action: String,
+  to: String,
+  message: String,
+  status: { type: String, enum: ["PENDING", "SENDING", "ACCEPTED", "FAILED", "SKIPPED", "UNKNOWN"], default: "PENDING", index: true },
+  outcome: String,
+  attemptedAt: Date,
+}, { timestamps: true }));
+SmsNotification.schema.index({ request: 1, version: 1, recipient: 1 }, { unique: true });
+
 export const Department = mongoose.model(
   "Department",
   new Schema(
@@ -156,6 +170,7 @@ export async function initializeDatabase() {
     Location.init(),
     Role.init(),
     TransportRequest.init(),
+    SmsNotification.init(),
   ]);
   // Replace the original unique index, which permits only one user without email.
   // The partial unique index above is installed before dropping the old index.
